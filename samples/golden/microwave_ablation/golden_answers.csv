@@ -1,0 +1,22 @@
+issue_id,module,risk_level,description,evidence_location,expected_action,must_identify
+G-001,产品名称一致性,red,说明书产品名称与综述资料不一致,01_overview.md;03_instructions.md,统一产品名称,yes
+G-002,型号规格一致性,red,说明书只列 A100 而其他资料列 A100/A200,02_technical_requirements.md;03_instructions.md,统一型号并说明差异,yes
+G-003,适用范围一致性,red,说明书适用范围扩大到实体肿瘤,01_overview.md;03_instructions.md,统一适用范围或补充证据,yes
+G-004,软件版本一致性,red,软件资料/说明书/检验报告版本不一致,03_instructions.md;06_test_report.md;07_software.md,统一版本并补充差异说明,yes
+G-005,网络安全资料,red,存在远程升级但缺少网络安全资料,03_instructions.md,补充网络安全资料,yes
+G-006,检验覆盖,red,技术要求温度精度未在检验报告覆盖,02_technical_requirements.md;06_test_report.md,补检或补覆盖说明,yes
+G-007,标准版本,yellow,引用 GB 9706.1-2007 和 YY 0505-2012,02_technical_requirements.md,核对现行标准,yes
+G-008,临床结论,red,30例单臂数据直接得出免临床结论,05_clinical_evaluation.md,改为待确认并补证据,yes
+G-009,使用期限,yellow,声明 8 年但缺少可靠性研究,01_overview.md,补充可靠性资料,yes
+G-010,一次性附件,red,一次性探针又写清洁消毒后再用,03_instructions.md,删除重复使用表述,yes
+G-011,禁忌证,yellow,风险管理中的起搏器禁忌未进入说明书,04_risk_management.md;03_instructions.md,同步说明书禁忌证,yes
+G-012,结构组成,yellow,综述有温度监测模块但说明书未写,01_overview.md;03_instructions.md,补齐结构组成,yes
+G-013,功能声称,yellow,精准消融声称缺少验证证据,03_instructions.md,删除或补充验证,yes
+G-014,代表型号,yellow,A100/A200 只检 A100 且无代表型号说明,06_test_report.md,补充代表型号说明,yes
+G-015,AI算法资料,yellow,自动推荐消融参数但无算法资料,03_instructions.md,补充算法资料,yes
+G-016,分类编码,yellow,分类编码待确认,01_overview.md,确认分类编码,no
+G-017,注册单元,yellow,A100/A200 差异未说明,01_overview.md,补充注册单元说明,no
+G-018,网络控制项,yellow,远程维护缺少权限控制描述,03_instructions.md,补充权限控制,no
+G-019,临床同品种,yellow,同品种产品对比待补充,05_clinical_evaluation.md,补充同品种对比,no
+G-020,标签警示,yellow,剩余风险警示未完整转入说明书,04_risk_management.md,完善警示说明,no
+

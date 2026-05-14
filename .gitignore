@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+frontend/dist/
+data/uploads/
+data/extracted_text/
+reports/generated/
+*.sqlite
+*.sqlite3
+.DS_Store
+.playwright-mcp/
+share-inner-text.txt
+share-snapshot.md
+registration-review-demo.png

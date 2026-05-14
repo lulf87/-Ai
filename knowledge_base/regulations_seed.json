@@ -1,0 +1,33 @@
+[
+  {
+    "title": "医疗器械注册申报资料要求和批准证明文件格式",
+    "reference_number": "国家药监局 2021年第121号",
+    "publication_date": "2021-09-30",
+    "official_url": "https://www.nmpa.gov.cn/ylqx/ylqxggtg/20210930155134148.html",
+    "attachment_filename": "待人工下载校验",
+    "attachment_sha256": "",
+    "applicable_modules": ["general_submission"],
+    "verification_status": "pending"
+  },
+  {
+    "title": "医疗器械产品注册项目立卷审查要求",
+    "reference_number": "国家药监局 2022年第40号",
+    "publication_date": "2022-06-02",
+    "official_url": "https://www.nmpa.gov.cn/",
+    "attachment_filename": "待人工下载校验",
+    "attachment_sha256": "",
+    "applicable_modules": ["general_submission", "testing"],
+    "verification_status": "pending"
+  },
+  {
+    "title": "医疗器械网络安全注册审查指导原则",
+    "reference_number": "CMDE 指导原则",
+    "publication_date": "2022",
+    "official_url": "https://www.cmde.org.cn/",
+    "attachment_filename": "待人工下载校验",
+    "attachment_sha256": "",
+    "applicable_modules": ["network_security"],
+    "verification_status": "pending"
+  }
+]
+
