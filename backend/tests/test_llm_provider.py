@@ -1,6 +1,8 @@
 import json
 import subprocess
 
+import pytest
+
 from backend.app.llm import (
     CodexCLIProvider,
     CommandResult,
@@ -8,8 +10,10 @@ from backend.app.llm import (
     DEFAULT_CODEX_CLI_HTTP_TRANSPORT,
     DEFAULT_CODEX_CLI_SLIM_CONTEXT,
     DEFAULT_CODEX_CLI_TIMEOUT_SECONDS,
+    FakeLLMProvider,
     SanitizedSegment,
     get_llm_provider,
+    validate_llm_startup_configuration,
 )
 
 
@@ -25,6 +29,7 @@ def test_codex_cli_provider_defaults_to_faster_model_and_long_timeout(monkeypatc
     assert provider.timeout_seconds == DEFAULT_CODEX_CLI_TIMEOUT_SECONDS
     assert provider.slim_context == DEFAULT_CODEX_CLI_SLIM_CONTEXT
     assert provider.http_transport == DEFAULT_CODEX_CLI_HTTP_TRANSPORT
+    assert provider.allow_local_fallback is False
 
 
 def test_codex_cli_provider_sends_sanitized_prompt_and_parses_json():
@@ -91,11 +96,35 @@ def test_codex_cli_provider_sends_sanitized_prompt_and_parses_json():
     assert "植入式心脏起搏器患者禁用" not in prompt
 
 
-def test_codex_cli_provider_falls_back_to_fake_when_cli_fails():
+def test_codex_cli_provider_raises_by_default_when_cli_fails():
     def failing_runner(command, prompt, timeout_seconds):
         return CommandResult(returncode=1, stdout="", stderr="not logged in")
 
     provider = CodexCLIProvider(command="codex", runner=failing_runner)
+
+    with pytest.raises(RuntimeError, match="not logged in"):
+        provider.analyze_risks(
+            [
+                SanitizedSegment(
+                    document_id=1,
+                    document_type="clinical_evaluation",
+                    filename="clinical.md",
+                    locator="全文",
+                    excerpt="本资料基于 30例 单臂观察数据进行总结。",
+                )
+            ]
+        )
+
+
+def test_codex_cli_provider_falls_back_to_fake_when_explicitly_allowed():
+    def failing_runner(command, prompt, timeout_seconds):
+        return CommandResult(returncode=1, stdout="", stderr="not logged in")
+
+    provider = CodexCLIProvider(
+        command="codex",
+        runner=failing_runner,
+        allow_local_fallback=True,
+    )
 
     result = provider.analyze_risks(
         [
@@ -123,7 +152,11 @@ def test_codex_cli_provider_falls_back_to_fake_when_cli_times_out():
     def timeout_runner(command, prompt, timeout_seconds):
         raise subprocess.TimeoutExpired(command, timeout_seconds)
 
-    provider = CodexCLIProvider(command="codex", runner=timeout_runner)
+    provider = CodexCLIProvider(
+        command="codex",
+        runner=timeout_runner,
+        allow_local_fallback=True,
+    )
 
     result = provider.extract_master_data([], {"product_name": "兜底产品"})
 
@@ -133,9 +166,46 @@ def test_codex_cli_provider_falls_back_to_fake_when_cli_times_out():
     assert result.output_json["fields"]["product_name"] == "兜底产品"
 
 
+def test_get_llm_provider_defaults_to_codex_cli(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+
+    provider = get_llm_provider()
+
+    assert isinstance(provider, CodexCLIProvider)
+
+
 def test_get_llm_provider_can_select_codex_cli(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "codex_cli")
 
     provider = get_llm_provider()
 
     assert isinstance(provider, CodexCLIProvider)
+
+
+def test_get_llm_provider_can_select_fake_only_when_explicit(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+
+    provider = get_llm_provider()
+
+    assert isinstance(provider, FakeLLMProvider)
+
+
+def test_get_llm_provider_rejects_unknown_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "accidental-local")
+
+    with pytest.raises(ValueError, match="Unsupported LLM_PROVIDER"):
+        get_llm_provider()
+
+
+def test_startup_validation_rejects_missing_real_llm_command(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "codex_cli")
+    monkeypatch.setenv("CODEX_CLI_COMMAND", "/not/a/real/codex")
+
+    with pytest.raises(RuntimeError, match="Codex CLI command not found"):
+        validate_llm_startup_configuration()
+
+
+def test_startup_validation_allows_explicit_local_demo(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+
+    validate_llm_startup_configuration()

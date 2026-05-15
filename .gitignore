@@ -9,6 +9,7 @@ data/uploads/
 data/regulations/
 data/extracted_text/
 data/*.bak
+data/*.bak-*
 reports/generated/
 *.sqlite
 *.sqlite3

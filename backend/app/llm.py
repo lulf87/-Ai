@@ -14,6 +14,10 @@ DEFAULT_CODEX_CLI_MODEL = "gpt-5.4-mini"
 DEFAULT_CODEX_CLI_TIMEOUT_SECONDS = 600
 DEFAULT_CODEX_CLI_SLIM_CONTEXT = True
 DEFAULT_CODEX_CLI_HTTP_TRANSPORT = True
+DEFAULT_LLM_PROVIDER = "codex_cli"
+DEFAULT_LLM_ALLOW_LOCAL_FALLBACK = False
+CODEX_PROVIDER_VALUES = {"codex", "codex_cli", "codex-cli", "llm", "true", "1"}
+LOCAL_PROVIDER_VALUES = {"fake", "local", "demo", "offline", "none", "false", "0"}
 CODEX_CLI_SLIM_DISABLED_FEATURES = (
     "plugins",
     "apps",
@@ -277,6 +281,7 @@ class CodexCLIProvider:
         reasoning_summary: str | None = None,
         slim_context: bool | None = None,
         http_transport: bool | None = None,
+        allow_local_fallback: bool | None = None,
         runner=None,
         fallback_provider: LLMProvider | None = None,
     ) -> None:
@@ -296,6 +301,11 @@ class CodexCLIProvider:
             env_bool("CODEX_CLI_HTTP_TRANSPORT", DEFAULT_CODEX_CLI_HTTP_TRANSPORT)
             if http_transport is None
             else http_transport
+        )
+        self.allow_local_fallback = (
+            env_bool("LLM_ALLOW_LOCAL_FALLBACK", DEFAULT_LLM_ALLOW_LOCAL_FALLBACK)
+            if allow_local_fallback is None
+            else allow_local_fallback
         )
         self._uses_default_runner = runner is None
         self.runner = runner or run_codex_command
@@ -420,11 +430,14 @@ class CodexCLIProvider:
                     "reasoning_summary": self.reasoning_summary,
                     "slim_context": self.slim_context,
                     "http_transport": self.http_transport,
+                    "allow_local_fallback": self.allow_local_fallback,
                     "sandbox": "read-only",
                     "input_policy": "desensitized_excerpts_only",
                 },
             )
         except Exception as exc:
+            if not self.allow_local_fallback:
+                raise RuntimeError(str(exc) or exc.__class__.__name__) from exc
             result = fallback()
             model_config = dict(result.model_config)
             model_config["fallback_from"] = self.provider_name
@@ -435,6 +448,7 @@ class CodexCLIProvider:
             model_config["attempted_reasoning_summary"] = self.reasoning_summary
             model_config["attempted_slim_context"] = self.slim_context
             model_config["attempted_http_transport"] = self.http_transport
+            model_config["attempted_allow_local_fallback"] = self.allow_local_fallback
             return LLMProviderResult(
                 output_json=result.output_json,
                 output_text=result.output_text,
@@ -644,7 +658,26 @@ def regulatory_candidate(
 
 
 def get_llm_provider() -> LLMProvider:
-    provider = os.getenv("LLM_PROVIDER", "fake").strip().lower()
-    if provider in {"codex", "codex_cli", "codex-cli"}:
+    provider = os.getenv("LLM_PROVIDER", DEFAULT_LLM_PROVIDER).strip().lower()
+    if provider in CODEX_PROVIDER_VALUES:
         return CodexCLIProvider()
-    return FakeLLMProvider()
+    if provider in LOCAL_PROVIDER_VALUES:
+        return FakeLLMProvider()
+    raise ValueError(
+        f"Unsupported LLM_PROVIDER={provider!r}; use 'codex_cli' for real LLM or 'fake' "
+        "for explicit local demo mode."
+    )
+
+
+def validate_llm_startup_configuration(provider: LLMProvider | None = None) -> None:
+    selected_provider = provider or get_llm_provider()
+    if (
+        isinstance(selected_provider, CodexCLIProvider)
+        and selected_provider._uses_default_runner
+        and shutil.which(selected_provider.command) is None
+    ):
+        raise RuntimeError(
+            f"Codex CLI command not found: {selected_provider.command}. "
+            "Install Codex CLI, set CODEX_CLI_COMMAND, or explicitly set LLM_PROVIDER=fake "
+            "for local demo mode."
+        )

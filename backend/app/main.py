@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 
 from backend.app.config import BASE_DIR, UPLOAD_DIR
 from backend.app.database import get_session, init_db
+from backend.app.llm import validate_llm_startup_configuration
 from backend.app.ai_services import (
     ai_analyze_risks,
     ai_extract_master_data,
@@ -70,6 +71,7 @@ from backend.app.storage import safe_suffix, save_regulation_bytes, save_regulat
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
+    validate_llm_startup_configuration()
     yield
 
 
@@ -259,6 +261,17 @@ def create_document_record_from_path(
     project_dir = UPLOAD_DIR / str(project_id)
     project_dir.mkdir(parents=True, exist_ok=True)
     digest = sha256_file(source_path)
+    existing = session.exec(
+        select(DocumentRecord)
+        .where(DocumentRecord.project_id == project_id)
+        .where(DocumentRecord.document_type == document_type)
+        .where(DocumentRecord.filename == source_path.name)
+        .where(DocumentRecord.sha256 == digest)
+        .order_by(DocumentRecord.id)
+    ).first()
+    if existing is not None:
+        return existing
+
     stored_path = project_dir / f"{digest}{safe_suffix(source_path.name)}"
     if not stored_path.exists():
         shutil.copy2(source_path, stored_path)

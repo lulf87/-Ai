@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 os.environ.setdefault("REG_REVIEW_DATABASE_PATH", "data/test.sqlite3")
+os.environ.setdefault("LLM_PROVIDER", "fake")
 
 from docx import Document
 from fastapi.testclient import TestClient
@@ -553,6 +554,36 @@ def test_project_can_load_golden_sample_documents_from_ui_flow():
     documents = response.json()
     assert len(documents) >= 7
     assert {doc["parse_status"] for doc in documents} == {"parsed"}
+
+
+def test_golden_sample_load_is_idempotent():
+    client = make_client()
+    project = client.post(
+        "/projects",
+        json={
+            "name": "样例重复加载项目",
+            "registration_scenario": "国产三类首次注册",
+        },
+    ).json()
+
+    first = client.post(f"/projects/{project['id']}/sample-documents/golden-microwave")
+    second = client.post(f"/projects/{project['id']}/sample-documents/golden-microwave")
+    listed = client.get(f"/projects/{project['id']}/documents")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert listed.status_code == 200
+    first_documents = first.json()
+    second_documents = second.json()
+    listed_documents = listed.json()
+    assert len(first_documents) == len(second_documents) == len(listed_documents)
+    assert {doc["id"] for doc in second_documents} == {doc["id"] for doc in first_documents}
+    assert len(
+        {
+            (doc["document_type"], doc["filename"], doc["sha256"])
+            for doc in listed_documents
+        }
+    ) == len(listed_documents)
 
 
 def test_golden_dataset_identifies_at_least_fourteen_seeded_issues(tmp_path):

@@ -4,6 +4,15 @@
 
 These rules apply to this repository and override broader defaults when they are more specific.
 
+## Real LLM Is The Default
+
+Unless the user explicitly asks for offline/local/fake/demo mode, start the backend with the real LLM provider.
+
+- Do not set `LLM_PROVIDER=fake` for normal app runs or browser verification.
+- Leave `LLM_PROVIDER` unset or set it to `codex_cli` for normal backend startup.
+- Use `LLM_PROVIDER=fake` only for deterministic automated tests or when the user explicitly says not to use LLM.
+- Do not hide real LLM failures by silently accepting local fallback. Local fallback requires explicit `LLM_ALLOW_LOCAL_FALLBACK=1`.
+
 ## Browser Verification Is Required
 
 After every program update, run a real browser verification before reporting the work as complete.

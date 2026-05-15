@@ -2,7 +2,7 @@
 
 本项目是一个本地/私有化优先的三类有源医疗器械注册资料预审 Demo。它用于上传脱敏注册资料包，抽取产品主数据，运行规则检查，并导出带证据定位的红黄绿风险报告。
 
-V0.2 增加大模型辅助层，但大模型不是最终裁判。系统默认使用 deterministic fake provider 供本地演示和测试；接入真实云端模型时，只允许发送脱敏摘录、样例资料片段和法规元数据，不发送原始敏感注册资料。
+V0.2 增加大模型辅助层，但大模型不是最终裁判。系统默认使用本机 Codex CLI 作为真实 LLM provider；只有显式设置 `LLM_PROVIDER=fake` 时才进入本地 deterministic demo 模式。接入真实云端模型时，只允许发送脱敏摘录、样例资料片段和法规元数据，不发送原始敏感注册资料。
 
 本 Demo 不做自动注册、不判断最终能否获批、不把 PolicyNote 作为核心法规依据。规则依据只引用人工校验后的 NMPA/CMDE 官方来源。
 
@@ -20,20 +20,28 @@ uvicorn backend.app.main:app --reload
 
 ## LLM Provider
 
-默认 provider 是 `fake`，适合离线演示和自动化测试：
+默认 provider 是 `codex_cli`。也就是说，除非你显式指定不走 LLM，后端启动和“智能抽取/智能分析”都会使用本机 `codex exec`：
 
 ```bash
 uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-如果你已经登录并可直接使用 Codex CLI，可以用本机 `codex exec` 作为大模型层：
+等价显式写法：
 
 ```bash
 LLM_PROVIDER=codex_cli uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
+如果只想离线演示或跑确定性本地测试，必须显式指定：
+
+```bash
+LLM_PROVIDER=fake uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+```
+
 可选环境变量：
 
+- `LLM_PROVIDER`：默认 `codex_cli`；只有显式设为 `fake`/`local`/`demo`/`offline` 才使用本地演示 provider
+- `LLM_ALLOW_LOCAL_FALLBACK`：默认 `false`；真实 LLM 调用失败时默认报错，不静默回退到本地结果。如需保留旧演示行为，可显式设为 `1`
 - `CODEX_CLI_COMMAND`：Codex CLI 命令路径，默认 `codex`
 - `CODEX_CLI_MODEL`：传给 `codex --model` 的模型名，默认 `gpt-5.4-mini`；需要更强推理时可改为 `gpt-5.5`
 - `CODEX_CLI_TIMEOUT_SECONDS`：单次调用超时，默认 `600`
@@ -42,7 +50,7 @@ LLM_PROVIDER=codex_cli uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 - `CODEX_CLI_SLIM_CONTEXT`：是否使用瘦身上下文，默认 `true`；会在子调用中关闭插件/工具并忽略项目规则，降低 Codex CLI 输入负担
 - `CODEX_CLI_HTTP_TRANSPORT`：是否强制 Codex CLI 使用 HTTP Responses provider，默认 `true`；用于规避 WebSocket 链路里的 `Reconnecting... (timeout waiting for child process to exit)` 问题
 
-Codex CLI provider 只接收系统生成的脱敏摘录、证据位置和法规元数据；如果 CLI 不可用或调用失败，系统会回退到 fake provider，并在 `LLMRun.model_config_json` 中记录 `fallback_from`、`fallback_error`、`attempted_model`、`attempted_timeout_seconds`、`attempted_slim_context` 和 `attempted_http_transport`。瘦身上下文不改变应用侧的脱敏、只读 sandbox 和证据边界；它只是不让这个子调用加载当前项目开发规则、浏览器插件和工具上下文。
+Codex CLI provider 只接收系统生成的脱敏摘录、证据位置和法规元数据。启动时会校验真实 LLM 命令是否可用；如果找不到 `codex`，除非显式 `LLM_PROVIDER=fake`，后端会启动失败。真实 LLM 调用失败时默认报错，不再静默变成本地结果；只有显式 `LLM_ALLOW_LOCAL_FALLBACK=1` 时，系统才会回退到 fake provider，并在 `LLMRun.model_config_json` 中记录 `fallback_from`、`fallback_error`、`attempted_model`、`attempted_timeout_seconds`、`attempted_slim_context` 和 `attempted_http_transport`。瘦身上下文不改变应用侧的脱敏、只读 sandbox 和证据边界；它只是不让这个子调用加载当前项目开发规则、浏览器插件和工具上下文。
 
 另开终端启动前端：
 
@@ -87,4 +95,4 @@ uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 - 预置或导入法规的适用性必须由人工确认；仅有网页链接、未下载的附件元数据或转载附件 SHA 不等于最终法规依据。
 - AI 候选风险默认 `pending_review`，不能直接作为最终红色结论。
 - `LLMRun` 只记录输入摘要、配置、输出和耗时，不保存完整原始资料。
-- 默认本地运行，不配置外部模型；接入云端模型前必须经过脱敏/摘录层。
+- 默认走真实 LLM，但只发送脱敏摘录、证据定位和法规元数据；如需不走 LLM，必须显式设置 `LLM_PROVIDER=fake`。
