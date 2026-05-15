@@ -140,6 +140,7 @@ def add_findings(document: Document, findings: list[Finding]) -> None:
         source_label = {
             "rule": "规则发现",
             "llm_candidate": "智能候选",
+            "regulatory_rag_candidate": "法规RAG候选",
             "rule_llm_confirmed": "规则与智能辅助确认",
             "manual": "人工录入",
         }.get(finding.source_type, finding.source_type)
@@ -162,6 +163,20 @@ def add_findings(document: Document, findings: list[Finding]) -> None:
         for line in evidence.splitlines():
             if line.strip():
                 document.add_paragraph(line.strip(), style="List Bullet")
+        if finding.regulation_evidence_quote:
+            regulation_label = finding.regulation_title or "已校验法规"
+            sha_label = (
+                f"；附件 SHA：{finding.regulation_attachment_sha256}"
+                if finding.regulation_attachment_sha256
+                else ""
+            )
+            locator_label = (
+                f"；位置：{finding.regulation_evidence_locator}"
+                if finding.regulation_evidence_locator
+                else ""
+            )
+            document.add_paragraph(f"法规依据：{display_text(regulation_label)}{sha_label}{locator_label}")
+            document.add_paragraph(display_text(finding.regulation_evidence_quote), style="List Bullet")
         if finding.ai_rationale:
             document.add_paragraph(f"智能分析理由：{display_text(finding.ai_rationale)}")
         document.add_paragraph(f"建议：{display_text(finding.recommended_action)}")

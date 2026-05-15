@@ -68,6 +68,13 @@ class LLMProvider(Protocol):
     def analyze_risks(self, segments: list[SanitizedSegment]) -> LLMProviderResult:
         ...
 
+    def analyze_regulatory_rag(
+        self,
+        segments: list[SanitizedSegment],
+        regulation_hits: list[dict[str, Any]],
+    ) -> LLMProviderResult:
+        ...
+
     def summarize_regulation_impact(self, regulation_payload: dict[str, Any]) -> LLMProviderResult:
         ...
 
@@ -155,6 +162,76 @@ class FakeLLMProvider:
             f"生成 {len(candidates)} 条候选风险。",
         )
 
+    def analyze_regulatory_rag(
+        self,
+        segments: list[SanitizedSegment],
+        regulation_hits: list[dict[str, Any]],
+    ) -> LLMProviderResult:
+        candidates: list[dict[str, Any]] = []
+        ai_hit = first_regulation_hit(regulation_hits, ["ai_algorithm", "software"])
+        ai_segment = (
+            find_segment(segments, "自动推荐")
+            or find_segment(segments, "智能算法")
+            or find_segment(segments, "AI")
+        )
+        if ai_hit and ai_segment:
+            candidates.append(
+                regulatory_candidate(
+                    hit=ai_hit,
+                    segment=ai_segment,
+                    rule_id="RAG-AI-ALGORITHM-EVIDENCE",
+                    risk_level="yellow",
+                    title="智能算法功能与算法资料要求需复核",
+                    description="资料出现自动推荐消融参数等智能算法功能，需结合已校验法规依据确认算法资料是否覆盖基本信息、训练验证、性能评价和风险控制。",
+                    possible_impact="可能影响软件研究资料、算法研究资料和风险控制证据链完整性。",
+                    recommended_action="补充或核对算法资料，明确算法用途、输入输出、训练验证数据、性能评价和风险控制措施。",
+                    ai_rationale="项目资料触发智能算法关键词，且已检索到校验法规中的算法资料要求。本项仅作为法规RAG候选，需人工确认。",
+                )
+            )
+
+        clinical_hit = first_regulation_hit(regulation_hits, ["clinical"])
+        clinical_segment = find_segment(segments, "30例") or find_segment(segments, "免于临床评价")
+        if clinical_hit and clinical_segment:
+            candidates.append(
+                regulatory_candidate(
+                    hit=clinical_hit,
+                    segment=clinical_segment,
+                    rule_id="RAG-CLINICAL-EVALUATION-PATH",
+                    risk_level="yellow",
+                    title="临床评价路径与证据充分性需复核",
+                    description="资料中出现少量临床数据或免于临床评价结论，需结合已校验法规依据确认同品种对比、目录依据和临床证据边界。",
+                    possible_impact="可能影响临床评价路径选择、同品种对比和补正沟通重点。",
+                    recommended_action="人工复核临床评价路径，补充同品种对比、目录依据或临床证据边界说明。",
+                    ai_rationale="项目资料触发临床评价关键词，且已检索到校验法规中的临床评价要求。本项仅作为法规RAG候选，需人工确认。",
+                )
+            )
+
+        labeling_hit = first_regulation_hit(regulation_hits, ["labeling"])
+        labeling_segment = find_segment(segments, "一次性") or find_segment(segments, "重复使用")
+        if labeling_hit and labeling_segment:
+            candidates.append(
+                regulatory_candidate(
+                    hit=labeling_hit,
+                    segment=labeling_segment,
+                    rule_id="RAG-LABELING-DISPOSABLE-EVIDENCE",
+                    risk_level="yellow",
+                    title="一次性附件说明与标签要求需复核",
+                    description="资料中出现一次性附件和重复使用相关表述，需结合已校验法规依据确认说明书、标签和风险控制表述边界。",
+                    possible_impact="可能影响说明书标签一致性和一次性使用附件的风险控制措施。",
+                    recommended_action="核对说明书、标签样稿和风险管理资料，统一一次性使用、处置和警示说明。",
+                    ai_rationale="项目资料触发一次性附件关键词，且已检索到校验法规中的说明书标签要求。本项仅作为法规RAG候选，需人工确认。",
+                )
+            )
+
+        return self._result(
+            {
+                "candidates": candidates,
+                "retrieved_hits": len(regulation_hits),
+                "notes": "法规RAG候选默认待人工确认，不直接进入最终报告。",
+            },
+            f"生成 {len(candidates)} 条法规RAG候选。",
+        )
+
     def summarize_regulation_impact(self, regulation_payload: dict[str, Any]) -> LLMProviderResult:
         modules = regulation_payload.get("applicable_modules") or ["general_submission"]
         title = regulation_payload.get("title", "法规")
@@ -220,6 +297,7 @@ class CodexCLIProvider:
             if http_transport is None
             else http_transport
         )
+        self._uses_default_runner = runner is None
         self.runner = runner or run_codex_command
         self.fallback_provider = fallback_provider or FakeLLMProvider()
 
@@ -264,6 +342,37 @@ class CodexCLIProvider:
         return self._run_or_fallback(
             prompt=prompt,
             fallback=lambda: self.fallback_provider.analyze_risks(segments),
+        )
+
+    def analyze_regulatory_rag(
+        self,
+        segments: list[SanitizedSegment],
+        regulation_hits: list[dict[str, Any]],
+    ) -> LLMProviderResult:
+        prompt = codex_prompt(
+            task="analyze_regulatory_rag",
+            payload={
+                "segments": segments_payload(segments),
+                "regulation_hits": regulation_hits,
+            },
+            output_contract={
+                "candidates": (
+                    "array of {rule_id, risk_level, title, description, evidence_document, "
+                    "evidence_locator, evidence_quote, possible_impact, recommended_action, "
+                    "ai_rationale, regulation_id, regulation_title, regulation_attachment_id, "
+                    "regulation_attachment_filename, regulation_attachment_sha256, "
+                    "regulation_evidence_locator, regulation_evidence_quote}; use only the provided "
+                    "regulation_hits and keep every candidate pending-review wording"
+                ),
+                "retrieved_hits": "number of regulation hits reviewed",
+                "notes": "short Chinese note",
+            },
+        )
+        return self._run_or_fallback(
+            prompt=prompt,
+            fallback=lambda: self.fallback_provider.analyze_regulatory_rag(
+                segments, regulation_hits
+            ),
         )
 
     def summarize_regulation_impact(self, regulation_payload: dict[str, Any]) -> LLMProviderResult:
@@ -335,7 +444,7 @@ class CodexCLIProvider:
             )
 
     def _run(self, prompt: str) -> tuple[dict[str, Any], str]:
-        if shutil.which(self.command) is None:
+        if self._uses_default_runner and shutil.which(self.command) is None:
             raise RuntimeError(f"Codex CLI command not found: {self.command}")
         with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False) as output_file:
             output_path = Path(output_file.name)
@@ -488,6 +597,50 @@ def find_segment(segments: list[SanitizedSegment], term: str) -> SanitizedSegmen
         if normalized in segment.excerpt:
             return segment
     return None
+
+
+def first_regulation_hit(
+    regulation_hits: list[dict[str, Any]],
+    modules: list[str],
+) -> dict[str, Any] | None:
+    for module in modules:
+        for hit in regulation_hits:
+            if hit.get("module") == module:
+                return hit
+    return None
+
+
+def regulatory_candidate(
+    *,
+    hit: dict[str, Any],
+    segment: SanitizedSegment,
+    rule_id: str,
+    risk_level: str,
+    title: str,
+    description: str,
+    possible_impact: str,
+    recommended_action: str,
+    ai_rationale: str,
+) -> dict[str, Any]:
+    return {
+        "rule_id": rule_id,
+        "risk_level": risk_level,
+        "title": title,
+        "description": description,
+        "evidence_document": segment.filename,
+        "evidence_locator": segment.locator,
+        "evidence_quote": segment.excerpt[:220],
+        "possible_impact": possible_impact,
+        "recommended_action": recommended_action,
+        "ai_rationale": ai_rationale,
+        "regulation_id": hit.get("regulation_id"),
+        "regulation_title": hit.get("regulation_title", ""),
+        "regulation_attachment_id": hit.get("attachment_id"),
+        "regulation_attachment_filename": hit.get("attachment_filename", ""),
+        "regulation_attachment_sha256": hit.get("attachment_sha256", ""),
+        "regulation_evidence_locator": hit.get("locator", ""),
+        "regulation_evidence_quote": hit.get("quote", ""),
+    }
 
 
 def get_llm_provider() -> LLMProvider:

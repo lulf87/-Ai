@@ -76,10 +76,48 @@ class RegulationRecord(SQLModel, table=True):
     official_url: str
     attachment_filename: str = ""
     attachment_sha256: str = ""
+    attachment_url: str = ""
+    source_type: str = "manual"
+    source_files: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    source_content_sha256: str = ""
+    source_note: str = ""
+    coverage_classes: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    device_scope: str = ""
     applicable_modules: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    stored_path: str = ""
+    text_preview: str = ""
+    segment_count: int = 0
     verification_status: str = "pending"
     verified_by: str = ""
     verified_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class RegulationAttachment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    regulation_id: int = Field(index=True)
+    filename: str
+    source_url: str = ""
+    source_page_url: str = ""
+    source_type: str = "uploaded_file"
+    verification_usable: bool = False
+    sha256: str = Field(default="", index=True)
+    stored_path: str = ""
+    content_type: str = ""
+    byte_size: int = 0
+    download_status: str = "metadata_only"
+    download_error: str = ""
+    text_preview: str = ""
+    segment_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class RegulationTextSegment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    regulation_id: int = Field(index=True)
+    attachment_id: Optional[int] = Field(default=None, index=True)
+    locator: str
+    text: str
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -88,6 +126,12 @@ class Finding(SQLModel, table=True):
     project_id: int = Field(index=True)
     rule_id: str = Field(index=True)
     regulation_id: Optional[int] = Field(default=None, index=True)
+    regulation_attachment_id: Optional[int] = Field(default=None, index=True)
+    regulation_title: str = ""
+    regulation_attachment_filename: str = ""
+    regulation_attachment_sha256: str = ""
+    regulation_evidence_locator: str = ""
+    regulation_evidence_quote: str = ""
     risk_level: str
     title: str
     description: str

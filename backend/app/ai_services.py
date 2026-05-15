@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlmodel import Session, delete, select
 
-from backend.app.llm import LLMProvider, SanitizedSegment, get_llm_provider
+from backend.app.llm import LLMProvider, LLMProviderResult, SanitizedSegment, get_llm_provider
 from backend.app.master_data import extract_master_data
 from backend.app.models import (
     DocumentRecord,
@@ -23,6 +23,7 @@ from backend.app.models import (
     utc_now,
 )
 from backend.app.reporting import reportable_findings, write_docx
+from backend.app.regulation_rag import RegulationRagHit, search_verified_regulation_segments
 from backend.app.schemas import FindingReview
 
 
@@ -247,6 +248,92 @@ def ai_analyze_risks(
     return findings, run
 
 
+def regulatory_rag_review(
+    session: Session,
+    project_id: int,
+    provider: LLMProvider | None = None,
+) -> tuple[list[Finding], LLMRun]:
+    require_project(session, project_id)
+    provider = provider or get_llm_provider()
+    segments = load_sanitized_segments(session, project_id)
+    hits = search_verified_regulation_segments(session, project_id)
+    start = time.perf_counter()
+    if hits:
+        result = provider.analyze_regulatory_rag(
+            segments,
+            [hit.to_payload() for hit in hits],
+        )
+    else:
+        result = LLMProviderResult(
+            output_json={
+                "candidates": [],
+                "retrieved_hits": 0,
+                "notes": "无可用已校验法规来源，未生成法规RAG候选。",
+            },
+            output_text="无可用已校验法规来源，未生成法规RAG候选。",
+            provider=provider.provider_name,
+            model_name=provider.model_name,
+            model_config={"mode": "regulatory_rag_no_verified_source"},
+        )
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    run = create_llm_run(
+        session=session,
+        task_type="regulatory_rag_review",
+        provider_result=result,
+        project_id=project_id,
+        input_summary=summarize_regulatory_rag_input(project_id, segments, hits),
+        duration_ms=duration_ms,
+        contains_sensitive_content=contains_sensitive_segments(segments),
+    )
+
+    session.exec(
+        delete(Finding).where(
+            Finding.project_id == project_id,
+            Finding.source_type == "regulatory_rag_candidate",
+            Finding.review_status == "pending_review",
+        )
+    )
+    findings: list[Finding] = []
+    for candidate in result.output_json.get("candidates", []):
+        hit = matching_regulation_hit(candidate, hits)
+        if hit is None:
+            continue
+        evidence_quote = normalize_candidate_evidence(candidate)
+        finding = Finding(
+            project_id=project_id,
+            rule_id=candidate.get("rule_id", "RAG-CANDIDATE"),
+            regulation_id=hit.regulation_id,
+            regulation_attachment_id=hit.attachment_id,
+            regulation_title=hit.regulation_title,
+            regulation_attachment_filename=hit.attachment_filename,
+            regulation_attachment_sha256=hit.attachment_sha256,
+            regulation_evidence_locator=hit.locator,
+            regulation_evidence_quote=normalize_text_value(
+                candidate.get("regulation_evidence_quote", "")
+            )
+            or hit.quote,
+            risk_level=candidate.get("risk_level", "yellow"),
+            title=candidate.get("title", "法规RAG候选问题"),
+            description=candidate.get("description", ""),
+            evidence_document=candidate.get("evidence_document", ""),
+            evidence_locator=candidate.get("evidence_locator", ""),
+            evidence_quote=evidence_quote,
+            possible_impact=candidate.get("possible_impact", ""),
+            recommended_action=candidate.get("recommended_action", ""),
+            confidence_status="rag_candidate",
+            source_type="regulatory_rag_candidate",
+            ai_rationale=candidate.get("ai_rationale", ""),
+            review_status="pending_review",
+        )
+        session.add(finding)
+        findings.append(finding)
+    session.commit()
+    session.refresh(run)
+    for finding in findings:
+        session.refresh(finding)
+    return findings, run
+
+
 def review_finding(session: Session, finding_id: int, payload: FindingReview) -> Finding:
     finding = session.get(Finding, finding_id)
     if finding is None:
@@ -281,8 +368,14 @@ def summarize_regulation_impact(
         "official_url": regulation.official_url,
         "attachment_filename": regulation.attachment_filename,
         "attachment_sha256": regulation.attachment_sha256,
+        "source_type": regulation.source_type,
+        "source_files": regulation.source_files,
+        "source_content_sha256": regulation.source_content_sha256,
+        "coverage_classes": regulation.coverage_classes,
+        "device_scope": regulation.device_scope,
         "applicable_modules": regulation.applicable_modules,
         "verification_status": regulation.verification_status,
+        "text_preview": regulation.text_preview,
     }
     start = time.perf_counter()
     result = provider.summarize_regulation_impact(payload)
@@ -403,6 +496,51 @@ def summarize_input(project_id: int, segments: list[SanitizedSegment]) -> str:
         f"project_id={project_id}; input=desensitized_excerpts_only; "
         f"documents={docs}; excerpt_refs={locators}; excerpt_count={len(segments)}"
     )
+
+
+def summarize_regulatory_rag_input(
+    project_id: int,
+    segments: list[SanitizedSegment],
+    hits: list[RegulationRagHit],
+) -> str:
+    base = summarize_input(project_id, segments)
+    hit_refs = [
+        f"{hit.regulation_title}:{hit.attachment_filename}:{hit.locator}:sha={hit.attachment_sha256[:12]}"
+        for hit in hits[:10]
+    ]
+    return f"{base}; regulation_rag_hits={len(hits)}; regulation_refs={hit_refs}"
+
+
+def matching_regulation_hit(
+    candidate: dict[str, Any],
+    hits: list[RegulationRagHit],
+) -> RegulationRagHit | None:
+    regulation_id = int_or_none(candidate.get("regulation_id"))
+    attachment_id = int_or_none(
+        candidate.get("regulation_attachment_id") or candidate.get("attachment_id")
+    )
+    locator = normalize_text_value(
+        candidate.get("regulation_evidence_locator") or candidate.get("locator") or ""
+    )
+    for hit in hits:
+        if regulation_id == hit.regulation_id and attachment_id == hit.attachment_id:
+            if not locator or locator == hit.locator:
+                return hit
+    if regulation_id is None or attachment_id is None:
+        return None
+    for hit in hits:
+        if regulation_id == hit.regulation_id and attachment_id == hit.attachment_id:
+            return hit
+    return None
+
+
+def int_or_none(value: Any) -> int | None:
+    try:
+        if value in (None, ""):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def redact_sensitive_text(text: str) -> str:

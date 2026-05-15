@@ -1,12 +1,26 @@
 import {
+  AlertTriangle,
+  BadgeCheck,
+  BarChart3,
   ClipboardCheck,
   Check,
+  CheckCircle2,
+  Circle,
   Download,
+  ExternalLink,
+  FileCheck2,
   FileText,
+  FileUp,
+  FolderKanban,
+  Globe2,
+  LibraryBig,
   LoaderCircle,
   Play,
   Plus,
   RefreshCw,
+  Route,
+  Search,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -64,6 +78,12 @@ type Finding = {
   id: number;
   rule_id: string;
   regulation_id: number | null;
+  regulation_attachment_id: number | null;
+  regulation_title: string;
+  regulation_attachment_filename: string;
+  regulation_attachment_sha256: string;
+  regulation_evidence_locator: string;
+  regulation_evidence_quote: string;
   risk_level: "red" | "yellow" | "green";
   title: string;
   description: string;
@@ -73,7 +93,7 @@ type Finding = {
   possible_impact: string;
   recommended_action: string;
   confidence_status: string;
-  source_type: "rule" | "llm_candidate" | "rule_llm_confirmed" | "manual";
+  source_type: "rule" | "llm_candidate" | "regulatory_rag_candidate" | "rule_llm_confirmed" | "manual";
   ai_rationale: string;
   review_status: "pending_review" | "confirmed" | "rejected" | "edited";
 };
@@ -103,9 +123,53 @@ type Regulation = {
   official_url: string;
   attachment_filename: string;
   attachment_sha256: string;
+  attachment_url: string;
+  source_type: "preset" | "manual" | "web_import" | "file_import";
+  source_files: Array<Record<string, string | boolean>>;
+  source_content_sha256: string;
+  source_note: string;
+  coverage_classes: string[];
+  device_scope: string;
   applicable_modules: string[];
+  stored_path: string;
+  text_preview: string;
+  segment_count: number;
   verification_status: string;
   verified_by: string;
+};
+
+type RegulationAttachment = {
+  id: number;
+  regulation_id: number;
+  filename: string;
+  source_url: string;
+  source_page_url: string;
+  source_type: "official_attachment" | "uploaded_file" | "reference_attachment" | "web_page";
+  verification_usable: boolean;
+  sha256: string;
+  content_type: string;
+  byte_size: number;
+  download_status: string;
+  download_error: string;
+  text_preview: string;
+  segment_count: number;
+};
+
+type RegulationSearchResult = {
+  regulation_id: number;
+  regulation_title: string;
+  attachment_id: number | null;
+  attachment_filename: string;
+  attachment_sha256: string;
+  locator: string;
+  snippet: string;
+};
+
+type RegulationAttachmentBulkDownloadResponse = {
+  total: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
 };
 
 type Report = {
@@ -209,8 +273,36 @@ const riskLevelLabels: Record<Finding["risk_level"], string> = {
 const taskLabels: Record<string, string> = {
   extract_master_data: "主数据抽取",
   analyze_risks: "风险初筛",
+  regulatory_rag_review: "法规RAG审查",
   summarize_regulation_impact: "法规影响摘要",
   polish_report: "报告摘要润色",
+};
+
+const regulationModuleLabels: Record<string, string> = {
+  general_submission: "申报资料",
+  testing: "技术要求/检验",
+  standards: "标准",
+  software: "软件",
+  network_security: "网络安全",
+  clinical: "临床评价",
+  ai_algorithm: "人工智能",
+  reliability: "使用期限",
+  risk_management: "风险管理",
+  labeling: "说明书标签",
+};
+
+const regulationSourceLabels: Record<Regulation["source_type"], string> = {
+  preset: "预置",
+  manual: "手工录入",
+  web_import: "网页导入",
+  file_import: "文件导入",
+};
+
+const attachmentSourceLabels: Record<RegulationAttachment["source_type"], string> = {
+  official_attachment: "官方附件",
+  uploaded_file: "上传附件",
+  reference_attachment: "参考附件",
+  web_page: "网页正文",
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -234,16 +326,39 @@ export function App() {
   const [aiEvidenceSpans, setAiEvidenceSpans] = useState<EvidenceSpan[]>([]);
   const [latestAiRun, setLatestAiRun] = useState<LLMRun | null>(null);
   const [regulations, setRegulations] = useState<Regulation[]>([]);
+  const [regulationAttachments, setRegulationAttachments] = useState<Record<number, RegulationAttachment[]>>({});
   const [regulationImpacts, setRegulationImpacts] = useState<Record<number, RegulationImpactDraft>>({});
   const [regulationDraft, setRegulationDraft] = useState({
     title: "医疗器械注册申报资料要求和批准证明文件格式",
     reference_number: "国家药监局 2021年第121号",
     publication_date: "2021-09-30",
-    official_url: "https://www.nmpa.gov.cn/ylqx/ylqxggtg/20210930155134148.html",
-    attachment_filename: "人工校验附件.pdf",
-    attachment_sha256: "manual-placeholder-sha256",
+    official_url: "https://www.nmpa.gov.cn/xxgk/ggtg/ylqxggtg/ylqxqtggtg/20210930155134148.html",
+    attachment_filename: "",
+    attachment_sha256: "",
     applicable_modules: "general_submission,testing,network_security",
   });
+  const [regulationWebDraft, setRegulationWebDraft] = useState({
+    url: "",
+    title: "",
+    applicable_modules: "testing,standards",
+    coverage_classes: "II,III",
+  });
+  const [regulationFileDraft, setRegulationFileDraft] = useState({
+    title: "",
+    official_url: "",
+    reference_number: "",
+    publication_date: "",
+    applicable_modules: "general_submission",
+    coverage_classes: "II,III",
+  });
+  const [regulationImportFile, setRegulationImportFile] = useState<File | null>(null);
+  const [attachmentUrlDraft, setAttachmentUrlDraft] = useState({
+    regulation_id: "",
+    url: "",
+    filename: "",
+  });
+  const [regulationSearchQuery, setRegulationSearchQuery] = useState("");
+  const [regulationSearchResults, setRegulationSearchResults] = useState<RegulationSearchResult[]>([]);
   const [latestReport, setLatestReport] = useState<Report | null>(null);
   const [status, setStatus] = useState("就绪");
   const [busyTask, setBusyTask] = useState<string | null>(null);
@@ -274,6 +389,106 @@ export function App() {
       };
     });
   }, [documents, projectDraft, selectedProject, uploadedDocumentTypes]);
+  const requiredDocumentCount = useMemo(
+    () => checklistRows.filter((row) => row.expected).length,
+    [checklistRows]
+  );
+  const uploadedRequiredCount = useMemo(
+    () => checklistRows.filter((row) => row.expected && row.uploaded).length,
+    [checklistRows]
+  );
+  const missingRequiredCount = Math.max(requiredDocumentCount - uploadedRequiredCount, 0);
+  const hasMasterData = useMemo(
+    () => masterFields.some(([key]) => Boolean(masterData[key])),
+    [masterData]
+  );
+  const ruleFindingCount = useMemo(
+    () => findings.filter((finding) => ["rule", "rule_llm_confirmed"].includes(finding.source_type)).length,
+    [findings]
+  );
+  const aiCandidateCount = useMemo(
+    () =>
+      findings.filter((finding) =>
+        ["llm_candidate", "regulatory_rag_candidate"].includes(finding.source_type)
+      ).length,
+    [findings]
+  );
+  const pendingAiCandidateCount = useMemo(
+    () =>
+      findings.filter(
+        (finding) =>
+          ["llm_candidate", "regulatory_rag_candidate"].includes(finding.source_type) &&
+          finding.review_status === "pending_review"
+      ).length,
+    [findings]
+  );
+  const highRiskCount = useMemo(
+    () => findings.filter((finding) => finding.risk_level === "red").length,
+    [findings]
+  );
+  const verifiedRegulationCount = useMemo(
+    () => regulations.filter((regulation) => regulation.verification_status === "verified").length,
+    [regulations]
+  );
+  const workflowSteps = useMemo(
+    () => [
+      {
+        label: "建项",
+        detail: selectedProject ? "项目已就绪" : "创建或选择项目",
+        state: selectedProject ? "done" : "active",
+      },
+      {
+        label: "资料",
+        detail:
+          documents.length > 0
+            ? `${uploadedRequiredCount}/${requiredDocumentCount} 项关键资料`
+            : "加载样例或上传资料",
+        state:
+          documents.length === 0
+            ? "waiting"
+            : missingRequiredCount === 0
+              ? "done"
+              : "active",
+      },
+      {
+        label: "主数据",
+        detail: hasMasterData ? "字段已形成候选" : "待抽取产品主数据",
+        state: hasMasterData ? "done" : documents.length ? "active" : "waiting",
+      },
+      {
+        label: "风险",
+        detail: findings.length ? `${findings.length} 条发现` : "待运行规则和智能审查",
+        state: findings.length ? "done" : hasMasterData ? "active" : "waiting",
+      },
+      {
+        label: "复核",
+        detail: pendingAiCandidateCount ? `${pendingAiCandidateCount} 条候选待确认` : "候选已清理或暂无候选",
+        state:
+          aiCandidateCount === 0
+            ? "waiting"
+            : pendingAiCandidateCount === 0
+              ? "done"
+              : "active",
+      },
+      {
+        label: "报告",
+        detail: latestReport ? "Word 报告已生成" : "待生成预审报告",
+        state: latestReport ? "done" : findings.length ? "active" : "waiting",
+      },
+    ],
+    [
+      aiCandidateCount,
+      documents.length,
+      findings.length,
+      hasMasterData,
+      latestReport,
+      missingRequiredCount,
+      pendingAiCandidateCount,
+      requiredDocumentCount,
+      selectedProject,
+      uploadedRequiredCount,
+    ]
+  );
 
   useEffect(() => {
     refreshAll();
@@ -286,15 +501,32 @@ export function App() {
   }, [selectedProjectId]);
 
   async function refreshAll() {
-    const [projectList, regulationList] = await Promise.all([
+    const [projectList] = await Promise.all([
       request<Project[]>("/projects"),
-      request<Regulation[]>("/regulations"),
     ]);
     setProjects(projectList);
-    setRegulations(regulationList);
+    await refreshRegulations();
     if (!selectedProjectId && projectList.length) {
       setSelectedProjectId(projectList[0].id);
     }
+  }
+
+  async function refreshRegulations() {
+    const regulationList = await request<Regulation[]>("/regulations");
+    setRegulations(regulationList);
+    const entries = await Promise.all(
+      regulationList.map(async (regulation) => {
+        try {
+          const attachments = await request<RegulationAttachment[]>(
+            `/regulations/${regulation.id}/attachments`
+          );
+          return [regulation.id, attachments] as const;
+        } catch {
+          return [regulation.id, []] as const;
+        }
+      })
+    );
+    setRegulationAttachments(Object.fromEntries(entries));
   }
 
   async function refreshProject(projectId: number) {
@@ -428,6 +660,29 @@ export function App() {
     }
   }
 
+  async function runRegulatoryRagReview() {
+    if (!selectedProjectId) return;
+    setBusyTask("regulatory-rag");
+    setStatus("法规RAG审查中，正在检索已校验法规正文");
+    try {
+      const result = await request<AIRiskResponse>(
+        `/projects/${selectedProjectId}/regulatory-rag-review`,
+        { method: "POST" }
+      );
+      setLatestAiRun(result.llm_run);
+      await refreshProject(selectedProjectId);
+      setStatus(
+        result.findings.length > 0
+          ? `法规RAG审查已生成 ${result.findings.length} 条候选问题`
+          : "法规RAG审查未生成候选问题：暂无匹配的已校验法规正文"
+      );
+    } catch (error) {
+      setStatus(`法规RAG审查失败：${friendlyError(error)}`);
+    } finally {
+      setBusyTask(null);
+    }
+  }
+
   async function reviewFinding(findingId: number, reviewStatus: "confirmed" | "rejected") {
     if (!selectedProjectId) return;
     setStatus(reviewStatus === "confirmed" ? "确认候选问题中" : "驳回候选问题中");
@@ -452,21 +707,132 @@ export function App() {
           .split(",")
           .map((item) => item.trim())
           .filter(Boolean),
+        coverage_classes: ["II", "III"],
+        device_scope: "II类和III类有源医疗器械注册",
       }),
     });
-    setRegulations(await request<Regulation[]>("/regulations"));
+    await refreshRegulations();
     setStatus("法规已录入");
+  }
+
+  async function importRegulationFromWeb(event: FormEvent) {
+    event.preventDefault();
+    setStatus("导入法规网页中");
+    try {
+      await request<Regulation>("/regulations/import/web", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...regulationWebDraft,
+          applicable_modules: splitInputList(regulationWebDraft.applicable_modules),
+          coverage_classes: splitInputList(regulationWebDraft.coverage_classes),
+        }),
+      });
+      await refreshRegulations();
+      setStatus("法规网页已导入，等待附件 SHA 或人工确认");
+    } catch (error) {
+      setStatus(`网页导入失败：${friendlyError(error)}`);
+    }
+  }
+
+  async function importRegulationFromFile(event: FormEvent) {
+    event.preventDefault();
+    if (!regulationImportFile) return;
+    setStatus("导入法规文件中");
+    try {
+      const body = new FormData();
+      Object.entries(regulationFileDraft).forEach(([key, value]) => body.append(key, value));
+      body.append("file", regulationImportFile);
+      await request<Regulation>("/regulations/import/file", { method: "POST", body });
+      setRegulationImportFile(null);
+      await refreshRegulations();
+      setStatus("法规文件已导入并计算 SHA");
+    } catch (error) {
+      setStatus(`文件导入失败：${friendlyError(error)}`);
+    }
+  }
+
+  async function importAttachmentFromUrl(event: FormEvent) {
+    event.preventDefault();
+    const regulationId = Number(attachmentUrlDraft.regulation_id);
+    if (!regulationId || !attachmentUrlDraft.url) return;
+    setStatus("下载法规附件中");
+    try {
+      await request<RegulationAttachment>(`/regulations/${regulationId}/attachments/import-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: attachmentUrlDraft.url,
+          filename: attachmentUrlDraft.filename,
+          source_type: "official_attachment",
+          verification_usable: true,
+        }),
+      });
+      setAttachmentUrlDraft({ ...attachmentUrlDraft, url: "", filename: "" });
+      await refreshRegulations();
+      setStatus("法规附件已下载、计算 SHA 并抽取正文");
+    } catch (error) {
+      setStatus(`附件导入失败：${friendlyError(error)}`);
+    }
+  }
+
+  async function downloadKnownAttachment(regulationId: number, attachmentId: number) {
+    setStatus("下载并抽取官方附件中");
+    try {
+      await request<RegulationAttachment>(
+        `/regulations/${regulationId}/attachments/${attachmentId}/download`,
+        { method: "POST" }
+      );
+      await refreshRegulations();
+      setStatus("官方附件已下载、计算 SHA 并抽取正文");
+    } catch (error) {
+      setStatus(`附件下载失败：${friendlyError(error)}`);
+    }
+  }
+
+  async function downloadPresetAttachments() {
+    setStatus("批量下载预置法规来源中");
+    try {
+      const result = await request<RegulationAttachmentBulkDownloadResponse>(
+        "/regulations/preset-attachments/download",
+        { method: "POST" }
+      );
+      await refreshRegulations();
+      setStatus(
+        `预置来源下载完成：下载 ${result.downloaded} 个，跳过 ${result.skipped} 个，失败 ${result.failed} 个`
+      );
+    } catch (error) {
+      setStatus(`预置来源批量下载失败：${friendlyError(error)}`);
+    }
+  }
+
+  async function searchRegulationText(event: FormEvent) {
+    event.preventDefault();
+    if (!regulationSearchQuery.trim()) return;
+    setStatus("检索法规正文中");
+    try {
+      const params = new URLSearchParams({ query: regulationSearchQuery.trim() });
+      const results = await request<RegulationSearchResult[]>(`/regulations/search?${params}`);
+      setRegulationSearchResults(results);
+      setStatus(`法规正文检索完成：${results.length} 条结果`);
+    } catch (error) {
+      setStatus(`法规正文检索失败：${friendlyError(error)}`);
+    }
   }
 
   async function verifyRegulation(regulationId: number) {
     setStatus("校验法规中");
-    await request<Regulation>(`/regulations/${regulationId}/verify`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ verification_status: "verified", verified_by: "内部校验" }),
-    });
-    setRegulations(await request<Regulation[]>("/regulations"));
-    setStatus("法规已校验");
+    try {
+      await request<Regulation>(`/regulations/${regulationId}/verify`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verification_status: "verified", verified_by: "内部校验" }),
+      });
+      await refreshRegulations();
+      setStatus("法规已校验");
+    } catch (error) {
+      setStatus(`法规校验失败：${friendlyError(error)}`);
+    }
   }
 
   async function summarizeRegulationImpact(regulationId: number) {
@@ -536,9 +902,96 @@ export function App() {
     return value.replace(/AI\s*功能/g, "智能算法功能").replace(/\bAI\b/g, "智能算法");
   }
 
+  function splitInputList(value: string) {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function moduleLabel(module: string) {
+    return regulationModuleLabels[module] ?? module;
+  }
+
+  function sourceEvidence(regulation: Regulation) {
+    const attachments = attachmentsFor(regulation);
+    if (attachments.length) {
+      const readySources = attachments.filter(isAttachmentEvidenceReady);
+      const readyWebPages = readySources.filter((item) => item.source_type === "web_page");
+      const readyFileAttachments = readySources.filter((item) => item.source_type !== "web_page");
+      const pendingOfficial = attachments.filter(
+        (item) =>
+          item.source_type === "official_attachment" &&
+          item.verification_usable &&
+          !isAttachmentEvidenceReady(item)
+      );
+      const failedWebPages = attachments.filter(
+        (item) => item.source_type === "web_page" && item.download_status === "failed"
+      );
+      const segmentCount = attachments.reduce((sum, item) => sum + item.segment_count, 0);
+      if (readyFileAttachments.length && readyWebPages.length) {
+        return `${readyFileAttachments.length} 个已抽取可校验附件 + ${readyWebPages.length} 个官方网页正文 · ${segmentCount} 段正文`;
+      }
+      if (readyFileAttachments.length) {
+        return `${readyFileAttachments.length} 个已抽取可校验附件 · ${segmentCount} 段正文`;
+      }
+      if (readyWebPages.length) {
+        return `${readyWebPages.length} 个官方网页正文已抽取 · ${segmentCount} 段正文`;
+      }
+      if (pendingOfficial.length) {
+        return `${pendingOfficial.length} 个官方附件待下载/抽取 · ${segmentCount} 段正文`;
+      }
+      if (failedWebPages.length) {
+        return `${failedWebPages.length} 个官方网页正文抓取失败`;
+      }
+      return `${attachments.length} 个参考附件 · ${segmentCount} 段正文`;
+    }
+    if (regulation.source_files.length) {
+      const usableFiles = regulation.source_files.filter((item) => item.verification_usable !== false);
+      if (usableFiles.length) return `${usableFiles.length} 个官方文件待下载/抽取`;
+      return `${regulation.source_files.length} 个参考文件 SHA`;
+    }
+    if (regulation.attachment_sha256) return shortSha(regulation.attachment_sha256);
+    if (regulation.source_content_sha256) return `网页 SHA ${shortSha(regulation.source_content_sha256)}`;
+    return "待补附件 SHA";
+  }
+
+  function canVerifyRegulation(regulation: Regulation) {
+    const usableAttachment = attachmentsFor(regulation).some(isAttachmentEvidenceReady);
+    return Boolean(regulation.official_url && usableAttachment);
+  }
+
+  function attachmentsFor(regulation: Regulation) {
+    return regulationAttachments[regulation.id] ?? [];
+  }
+
+  function isAttachmentEvidenceReady(attachment: RegulationAttachment) {
+    return Boolean(
+      attachment.verification_usable &&
+        attachment.sha256 &&
+        attachment.download_status === "extracted" &&
+        attachment.segment_count > 0
+    );
+  }
+
+  function attachmentStatusLabel(attachment: RegulationAttachment) {
+    if (!attachment.verification_usable) return "参考";
+    if (isAttachmentEvidenceReady(attachment)) return "可校验";
+    if (attachment.download_status === "failed") return "抽取失败";
+    if (attachment.download_status === "metadata_only") return "待下载";
+    return "待抽取";
+  }
+
+  function shortSha(value: string) {
+    return value ? `${value.slice(0, 10)}...` : "";
+  }
+
   function sourceLabel(finding: Finding) {
     if (finding.source_type === "llm_candidate") {
       return finding.review_status === "pending_review" ? "智能候选" : "智能辅助";
+    }
+    if (finding.source_type === "regulatory_rag_candidate") {
+      return finding.review_status === "pending_review" ? "法规RAG候选" : "法规RAG辅助";
     }
     if (finding.source_type === "rule_llm_confirmed") return "规则与智能辅助确认";
     if (finding.source_type === "manual") return "人工录入";
@@ -557,13 +1010,33 @@ export function App() {
     return line ? [line] : ["暂无可展示证据，请人工补充资料后复核。"];
   }
 
+  function regulationEvidenceLines(finding: Finding) {
+    const header = [
+      finding.regulation_title,
+      finding.regulation_attachment_filename,
+      finding.regulation_evidence_locator,
+      finding.regulation_attachment_sha256 ? `SHA ${shortSha(finding.regulation_attachment_sha256)}` : "",
+    ].filter(Boolean).join(" · ");
+    const quoteLines = finding.regulation_evidence_quote
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return header ? [header, ...quoteLines] : quoteLines;
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <ClipboardCheck size={22} />
-          <span>注册资料预审</span>
+          <div className="brand-mark">
+            <ClipboardCheck size={22} />
+          </div>
+          <div>
+            <span>注册资料预审</span>
+            <small>Evidence-first workbench</small>
+          </div>
         </div>
+        <div className="sidebar-section-title">项目建档</div>
         <form className="project-form" onSubmit={createProject}>
           <label>
             项目名称
@@ -655,22 +1128,29 @@ export function App() {
             新建项目
           </button>
         </form>
+        <div className="sidebar-section-title">项目切换</div>
         <div className="project-list">
-          {projects.map((project) => (
-            <button
-              key={project.id}
-              className={project.id === selectedProjectId ? "selected" : ""}
-              onClick={() => setSelectedProjectId(project.id)}
-            >
-              {project.name}
-            </button>
-          ))}
+          {projects.length ? (
+            projects.map((project) => (
+              <button
+                key={project.id}
+                className={project.id === selectedProjectId ? "selected" : ""}
+                onClick={() => setSelectedProjectId(project.id)}
+              >
+                <FolderKanban size={15} />
+                {project.name}
+              </button>
+            ))
+          ) : (
+            <p className="sidebar-empty">暂无项目，请先新建项目。</p>
+          )}
         </div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div>
+            <p className="workspace-kicker">三类有源医疗器械注册资料智能预审</p>
             <h1>{selectedProject?.name ?? "未选择项目"}</h1>
             <p>{selectedProject?.registration_scenario ?? status}</p>
             <div className={`status-pill ${busyTask ? "busy" : ""}`}>
@@ -678,11 +1158,85 @@ export function App() {
               {status}
             </div>
           </div>
-          <button onClick={refreshAll}>
+          <button className="secondary-button" onClick={refreshAll}>
             <RefreshCw size={16} />
             刷新
           </button>
         </header>
+
+        <section className="band command-center" aria-label="项目审查概览">
+          <div className="metric-grid">
+            <article className={`metric-card ${missingRequiredCount ? "warning" : "success"}`}>
+              <div className="metric-icon">
+                <FileCheck2 size={18} />
+              </div>
+              <div>
+                <span>关键资料</span>
+                <strong>{uploadedRequiredCount}/{requiredDocumentCount || documentTypeOptions.length}</strong>
+                <p>{missingRequiredCount ? `仍缺 ${missingRequiredCount} 项` : "必需资料已覆盖"}</p>
+              </div>
+            </article>
+            <article className={highRiskCount ? "metric-card danger" : "metric-card"}>
+              <div className="metric-icon">
+                <ShieldAlert size={18} />
+              </div>
+              <div>
+                <span>风险发现</span>
+                <strong>{findings.length}</strong>
+                <p>{highRiskCount ? `${highRiskCount} 条高风险` : `${ruleFindingCount} 条规则发现`}</p>
+              </div>
+            </article>
+            <article className={pendingAiCandidateCount ? "metric-card info" : "metric-card"}>
+              <div className="metric-icon">
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <span>智能候选</span>
+                <strong>{aiCandidateCount}</strong>
+                <p>{pendingAiCandidateCount ? `${pendingAiCandidateCount} 条待人工确认` : "无待确认候选"}</p>
+              </div>
+            </article>
+            <article className="metric-card success">
+              <div className="metric-icon">
+                <LibraryBig size={18} />
+              </div>
+              <div>
+                <span>法规证据</span>
+                <strong>{verifiedRegulationCount}/{regulations.length}</strong>
+                <p>已校验法规来源</p>
+              </div>
+            </article>
+            <article className={latestReport ? "metric-card success" : "metric-card"}>
+              <div className="metric-icon">
+                <BadgeCheck size={18} />
+              </div>
+              <div>
+                <span>报告状态</span>
+                <strong>{latestReport ? "已生成" : "待生成"}</strong>
+                <p>{latestReport?.filename ?? "完成复核后生成 Word"}</p>
+              </div>
+            </article>
+          </div>
+          <div className="workflow-strip">
+            <div className="workflow-title">
+              <Route size={18} />
+              <span>审查路径</span>
+            </div>
+            <div className="workflow-steps">
+              {workflowSteps.map((step, index) => (
+                <div key={step.label} className={`workflow-step ${step.state}`}>
+                  <div className="workflow-marker">
+                    {step.state === "done" ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                  </div>
+                  <div>
+                    <strong>{index + 1}. {step.label}</strong>
+                    <span>{step.detail}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
         <section className="band two-columns">
           <form className="panel" onSubmit={uploadDocument}>
@@ -709,64 +1263,284 @@ export function App() {
               </button>
             </div>
             <div className="table-list">
-              {documents.map((doc) => (
-                <div key={doc.id} className="table-row">
-                  <span>{documentLabel(doc.document_type)}</span>
-                  <span>{doc.filename}</span>
-                  <span className={doc.parse_status === "parsed" ? "ok" : "warn"}>
-                    {parseStatusLabel(doc.parse_status)}
-                  </span>
+              {documents.length ? (
+                documents.map((doc) => (
+                  <div key={doc.id} className="table-row">
+                    <span>{documentLabel(doc.document_type)}</span>
+                    <span>{doc.filename}</span>
+                    <span className={doc.parse_status === "parsed" ? "ok" : "warn"}>
+                      {parseStatusLabel(doc.parse_status)}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-row">
+                  <FileText size={16} />
+                  <span>尚未上传资料，可加载黄金样例快速进入演示流程。</span>
                 </div>
-              ))}
+              )}
             </div>
           </form>
 
-          <form className="panel" onSubmit={createRegulation}>
-            <div className="panel-title">
-              <ShieldCheck size={18} />
-              <h2>法规库</h2>
+          <div className="panel regulation-panel">
+            <div className="panel-title actions-title">
+              <div className="panel-title">
+                <ShieldCheck size={18} />
+                <div>
+                  <h2>法规库</h2>
+                  <p className="section-note">预置覆盖 II/III 类有源器械注册；导入内容默认待确认，不自动成为规则依据。</p>
+                </div>
+              </div>
+              <button type="button" onClick={downloadPresetAttachments}>
+                <Download size={16} />
+                下载预置来源
+              </button>
             </div>
-            <input
-              value={regulationDraft.title}
-              onChange={(event) => setRegulationDraft({ ...regulationDraft, title: event.target.value })}
-            />
-            <input
-              value={regulationDraft.official_url}
-              onChange={(event) =>
-                setRegulationDraft({ ...regulationDraft, official_url: event.target.value })
-              }
-            />
-            <input
-              value={regulationDraft.attachment_sha256}
-              onChange={(event) =>
-                setRegulationDraft({ ...regulationDraft, attachment_sha256: event.target.value })
-              }
-            />
-            <button type="submit">
-              <Plus size={16} />
-              录入法规
-            </button>
-            <div className="table-list">
+            <form className="regulation-import-grid" onSubmit={importRegulationFromWeb}>
+              <label>
+                网页 URL
+                <input
+                  value={regulationWebDraft.url}
+                  onChange={(event) => setRegulationWebDraft({ ...regulationWebDraft, url: event.target.value })}
+                  placeholder="https://..."
+                />
+              </label>
+              <label>
+                覆盖模块
+                <input
+                  value={regulationWebDraft.applicable_modules}
+                  onChange={(event) =>
+                    setRegulationWebDraft({ ...regulationWebDraft, applicable_modules: event.target.value })
+                  }
+                />
+              </label>
+              <button type="submit" disabled={!regulationWebDraft.url}>
+                <Globe2 size={16} />
+                导入网页
+              </button>
+            </form>
+            <form className="regulation-import-grid" onSubmit={importRegulationFromFile}>
+              <label>
+                法规标题
+                <input
+                  value={regulationFileDraft.title}
+                  onChange={(event) =>
+                    setRegulationFileDraft({ ...regulationFileDraft, title: event.target.value })
+                  }
+                  placeholder="可留空，默认使用文件名"
+                />
+              </label>
+              <label>
+                官方链接
+                <input
+                  value={regulationFileDraft.official_url}
+                  onChange={(event) =>
+                    setRegulationFileDraft({ ...regulationFileDraft, official_url: event.target.value })
+                  }
+                />
+              </label>
+              <input
+                type="file"
+                accept=".doc,.docx,.pdf,.txt,.md"
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setRegulationImportFile(event.target.files?.[0] ?? null)
+                }
+              />
+              <button type="submit" disabled={!regulationImportFile}>
+                <FileUp size={16} />
+                导入文件
+              </button>
+            </form>
+            <form className="regulation-import-grid attachment-url-form" onSubmit={importAttachmentFromUrl}>
+              <label>
+                归属法规
+                <select
+                  value={attachmentUrlDraft.regulation_id}
+                  onChange={(event) =>
+                    setAttachmentUrlDraft({ ...attachmentUrlDraft, regulation_id: event.target.value })
+                  }
+                >
+                  <option value="">选择法规</option>
+                  {regulations.map((regulation) => (
+                    <option key={regulation.id} value={regulation.id}>
+                      {regulation.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                官方附件 URL
+                <input
+                  value={attachmentUrlDraft.url}
+                  onChange={(event) =>
+                    setAttachmentUrlDraft({ ...attachmentUrlDraft, url: event.target.value })
+                  }
+                  placeholder="https://...doc、...docx 或 ...pdf"
+                />
+              </label>
+              <input
+                value={attachmentUrlDraft.filename}
+                onChange={(event) =>
+                  setAttachmentUrlDraft({ ...attachmentUrlDraft, filename: event.target.value })
+                }
+                placeholder="文件名可留空"
+              />
+              <button
+                type="submit"
+                disabled={!attachmentUrlDraft.regulation_id || !attachmentUrlDraft.url}
+              >
+                <Download size={16} />
+                下载附件
+              </button>
+            </form>
+            <form className="regulation-manual-form" onSubmit={createRegulation}>
+              <input
+                value={regulationDraft.title}
+                onChange={(event) => setRegulationDraft({ ...regulationDraft, title: event.target.value })}
+              />
+              <input
+                value={regulationDraft.official_url}
+                onChange={(event) =>
+                  setRegulationDraft({ ...regulationDraft, official_url: event.target.value })
+                }
+              />
+              <input
+                value={regulationDraft.attachment_sha256}
+                onChange={(event) =>
+                  setRegulationDraft({ ...regulationDraft, attachment_sha256: event.target.value })
+                }
+                placeholder="附件 SHA，可先留空"
+              />
+              <button type="submit">
+                <Plus size={16} />
+                手工录入
+              </button>
+            </form>
+            <form className="regulation-search-form" onSubmit={searchRegulationText}>
+              <input
+                value={regulationSearchQuery}
+                onChange={(event) => setRegulationSearchQuery(event.target.value)}
+                placeholder="检索已抽取的法规附件正文"
+              />
+              <button type="submit" disabled={!regulationSearchQuery.trim()}>
+                <Search size={16} />
+                检索正文
+              </button>
+            </form>
+            {regulationSearchResults.length > 0 && (
+              <div className="regulation-search-results">
+                {regulationSearchResults.map((result, index) => (
+                  <div key={`${result.regulation_id}-${result.attachment_id}-${result.locator}-${index}`}>
+                    <strong>{result.regulation_title}</strong>
+                    <span>
+                      {result.attachment_filename || "网页正文"} · {result.locator}
+                      {result.attachment_sha256 ? ` · ${shortSha(result.attachment_sha256)}` : ""}
+                    </span>
+                    <p>{result.snippet}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="regulation-list">
               {regulations.map((regulation) => (
-                <div key={regulation.id} className="table-row regulation-row">
-                  <span>{regulation.title}</span>
-                  <span className={regulation.verification_status === "verified" ? "ok" : "warn"}>
-                    {regulationStatusLabel(regulation.verification_status)}
-                  </span>
-                  <button type="button" onClick={() => verifyRegulation(regulation.id)}>
-                    校验
-                  </button>
-                  <button type="button" onClick={() => summarizeRegulationImpact(regulation.id)}>
-                    <Sparkles size={16} />
-                    智能摘要
-                  </button>
+                <div key={regulation.id} className="regulation-card">
+                  <div className="regulation-card-main">
+                    <div>
+                      <div className="regulation-title-line">
+                        <strong>{regulation.title}</strong>
+                        <span className={`source-badge ${regulation.source_type}`}>
+                          {regulationSourceLabels[regulation.source_type] ?? regulation.source_type}
+                        </span>
+                      </div>
+                      <p className="regulation-meta">
+                        {[regulation.reference_number, regulation.publication_date, regulation.device_scope]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
+                    <span className={regulation.verification_status === "verified" ? "ok" : "warn"}>
+                      {regulationStatusLabel(regulation.verification_status)}
+                    </span>
+                  </div>
+                  <div className="regulation-chip-row">
+                    {regulation.coverage_classes.map((item) => (
+                      <span key={item} className="mini-chip">
+                        {item}类
+                      </span>
+                    ))}
+                    {regulation.applicable_modules.map((item) => (
+                      <span key={item} className="mini-chip muted">
+                        {moduleLabel(item)}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="regulation-evidence-row">
+                    <span>{sourceEvidence(regulation)}</span>
+                    {regulation.official_url && (
+                      <a href={regulation.official_url} target="_blank" rel="noreferrer">
+                        <ExternalLink size={14} />
+                        官方链接
+                      </a>
+                    )}
+                  </div>
+                  {regulation.source_note && <p className="regulation-note">{regulation.source_note}</p>}
+                  {attachmentsFor(regulation).length > 0 && (
+                    <div className="attachment-list">
+                      {attachmentsFor(regulation).slice(0, 3).map((attachment) => (
+                        <div key={attachment.id} className="attachment-row">
+                          <span>{attachmentSourceLabels[attachment.source_type] ?? attachment.source_type}</span>
+                          <strong>{attachment.filename}</strong>
+                          <span>
+                            {attachmentStatusLabel(attachment)} ·
+                            {attachment.segment_count} 段 · {shortSha(attachment.sha256)}
+                          </span>
+                          {attachment.source_url &&
+                            attachment.verification_usable &&
+                            !isAttachmentEvidenceReady(attachment) && (
+                              <button
+                                type="button"
+                                className="inline-action"
+                                onClick={() => downloadKnownAttachment(regulation.id, attachment.id)}
+                              >
+                                <Download size={14} />
+                                下载抽取
+                              </button>
+                            )}
+                          {attachment.download_error && (
+                            <span className="attachment-error">{attachment.download_error}</span>
+                          )}
+                        </div>
+                      ))}
+                      {attachmentsFor(regulation).length > 3 && (
+                        <span className="regulation-note">
+                          还有 {attachmentsFor(regulation).length - 3} 个附件未展开
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {regulation.text_preview && <p className="impact-draft">{regulation.text_preview}</p>}
+                  <div className="button-row regulation-actions">
+                    <button
+                      type="button"
+                      disabled={!canVerifyRegulation(regulation)}
+                      title={canVerifyRegulation(regulation) ? "确认校验" : "需补齐官方链接，并下载抽取至少一个可校验来源"}
+                      onClick={() => verifyRegulation(regulation.id)}
+                    >
+                      <Check size={16} />
+                      确认校验
+                    </button>
+                    <button type="button" onClick={() => summarizeRegulationImpact(regulation.id)}>
+                      <Sparkles size={16} />
+                      智能摘要
+                    </button>
+                  </div>
                   {regulationImpacts[regulation.id] && (
                     <p className="impact-draft">{regulationImpacts[regulation.id].summary}</p>
                   )}
                 </div>
               ))}
             </div>
-          </form>
+          </div>
         </section>
 
         <section className="band">
@@ -861,6 +1635,10 @@ export function App() {
                   {busyTask === "ai-risk" ? <LoaderCircle size={16} /> : <Sparkles size={16} />}
                   {busyTask === "ai-risk" ? "智能分析中" : "智能分析"}
                 </button>
+                <button onClick={runRegulatoryRagReview} disabled={!selectedProjectId || Boolean(busyTask)}>
+                  {busyTask === "regulatory-rag" ? <LoaderCircle size={16} /> : <ShieldCheck size={16} />}
+                  {busyTask === "regulatory-rag" ? "RAG审查中" : "法规RAG审查"}
+                </button>
                 <button onClick={generateReport} disabled={!selectedProjectId}>
                   <Download size={16} />
                   生成报告
@@ -877,44 +1655,76 @@ export function App() {
                 {latestAiRun.contains_sensitive_content ? " 已做脱敏标记" : " 仅使用脱敏摘录"}
               </p>
             )}
+            <div className="risk-overview">
+              <span>
+                <BarChart3 size={15} />
+                规则发现 {ruleFindingCount}
+              </span>
+              <span>
+                <Sparkles size={15} />
+                智能候选 {aiCandidateCount}
+              </span>
+              <span>
+                <AlertTriangle size={15} />
+                高风险 {highRiskCount}
+              </span>
+            </div>
             <div className="findings">
-              {findings.map((finding) => (
-                <article key={finding.id} className={`finding ${finding.risk_level}`}>
-                  <div className="finding-head">
-                    <span className={`risk-badge ${finding.risk_level}`}>{riskLevelLabels[finding.risk_level]}</span>
-                    <span className={`source-badge ${finding.source_type}`}>{sourceLabel(finding)}</span>
-                    <span className={`review-badge ${finding.review_status}`}>
-                      {reviewStatusLabels[finding.review_status]}
-                    </span>
-                  </div>
-                  <div>
-                    <h3>{displayText(finding.title)}</h3>
-                  </div>
-                  <p>{displayText(finding.description)}</p>
-                  <div className="evidence-block">
-                    <strong>资料依据</strong>
-                    {evidenceLines(finding).map((line, index) => (
-                      <p key={`${finding.id}-${index}`}>{displayText(line)}</p>
-                    ))}
-                  </div>
-                  {finding.ai_rationale && (
-                    <p className="ai-rationale">{displayText(finding.ai_rationale)}</p>
-                  )}
-                  <p className="action-text">建议处理：{displayText(finding.recommended_action)}</p>
-                  {finding.source_type === "llm_candidate" && finding.review_status === "pending_review" && (
-                    <div className="button-row review-actions">
-                      <button type="button" onClick={() => reviewFinding(finding.id, "confirmed")}>
-                        <Check size={16} />
-                        确认
-                      </button>
-                      <button type="button" className="secondary-button" onClick={() => reviewFinding(finding.id, "rejected")}>
-                        <X size={16} />
-                        驳回
-                      </button>
+              {findings.length ? (
+                findings.map((finding) => (
+                  <article key={finding.id} className={`finding ${finding.risk_level}`}>
+                    <div className="finding-head">
+                      <span className={`risk-badge ${finding.risk_level}`}>{riskLevelLabels[finding.risk_level]}</span>
+                      <span className={`source-badge ${finding.source_type}`}>{sourceLabel(finding)}</span>
+                      <span className={`review-badge ${finding.review_status}`}>
+                        {reviewStatusLabels[finding.review_status]}
+                      </span>
                     </div>
-                  )}
-                </article>
-              ))}
+                    <div>
+                      <h3>{displayText(finding.title)}</h3>
+                    </div>
+                    <p>{displayText(finding.description)}</p>
+                    <div className="evidence-block">
+                      <strong>资料依据</strong>
+                      {evidenceLines(finding).map((line, index) => (
+                        <p key={`${finding.id}-${index}`}>{displayText(line)}</p>
+                      ))}
+                    </div>
+                    {finding.regulation_evidence_quote && (
+                      <div className="evidence-block regulation-evidence-block">
+                        <strong>法规依据</strong>
+                        {regulationEvidenceLines(finding).map((line, index) => (
+                          <p key={`${finding.id}-regulation-${index}`}>{displayText(line)}</p>
+                        ))}
+                      </div>
+                    )}
+                    {finding.ai_rationale && (
+                      <p className="ai-rationale">{displayText(finding.ai_rationale)}</p>
+                    )}
+                    <p className="action-text">建议处理：{displayText(finding.recommended_action)}</p>
+                    {["llm_candidate", "regulatory_rag_candidate"].includes(finding.source_type) && finding.review_status === "pending_review" && (
+                      <div className="button-row review-actions">
+                        <button type="button" onClick={() => reviewFinding(finding.id, "confirmed")}>
+                          <Check size={16} />
+                          确认
+                        </button>
+                        <button type="button" className="secondary-button" onClick={() => reviewFinding(finding.id, "rejected")}>
+                          <X size={16} />
+                          驳回
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))
+              ) : (
+                <div className="empty-state">
+                  <ShieldCheck size={18} />
+                  <div>
+                    <strong>尚未形成风险清单</strong>
+                    <p>完成资料加载和主数据抽取后，运行规则与智能分析生成可复核发现。</p>
+                  </div>
+                </div>
+              )}
             </div>
             {latestReport && selectedProjectId && (
               <a

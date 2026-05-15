@@ -7,7 +7,7 @@ from tempfile import NamedTemporaryFile
 
 from fastapi import UploadFile
 
-from backend.app.config import UPLOAD_DIR
+from backend.app.config import REGULATION_UPLOAD_DIR, UPLOAD_DIR
 
 
 def sha256_file(path: Path) -> str:
@@ -39,3 +39,27 @@ def save_upload(project_id: int, upload: UploadFile) -> tuple[Path, str]:
         temp_path.unlink(missing_ok=True)
     return target, digest
 
+
+def save_regulation_upload(upload: UploadFile) -> tuple[Path, str]:
+    REGULATION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    with NamedTemporaryFile(delete=False) as temporary:
+        shutil.copyfileobj(upload.file, temporary)
+        temp_path = Path(temporary.name)
+
+    digest = sha256_file(temp_path)
+    target = REGULATION_UPLOAD_DIR / f"{digest}{safe_suffix(upload.filename or '')}"
+    if not target.exists():
+        shutil.move(str(temp_path), target)
+    else:
+        temp_path.unlink(missing_ok=True)
+    return target, digest
+
+
+def save_regulation_bytes(filename: str, content: bytes) -> tuple[Path, str]:
+    REGULATION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(content).hexdigest()
+    target = REGULATION_UPLOAD_DIR / f"{digest}{safe_suffix(filename)}"
+    if not target.exists():
+        target.write_bytes(content)
+    return target, digest

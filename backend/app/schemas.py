@@ -68,7 +68,31 @@ class RegulationCreate(BaseModel):
     official_url: str
     attachment_filename: str = ""
     attachment_sha256: str = ""
+    attachment_url: str = ""
+    source_type: str = "manual"
+    source_files: list[dict] = Field(default_factory=list)
+    source_content_sha256: str = ""
+    source_note: str = ""
+    coverage_classes: list[str] = Field(default_factory=list)
+    device_scope: str = ""
     applicable_modules: list[str] = Field(default_factory=list)
+
+
+class RegulationWebImport(BaseModel):
+    url: str
+    title: str = ""
+    reference_number: str = ""
+    publication_date: str = ""
+    applicable_modules: list[str] = Field(default_factory=list)
+    coverage_classes: list[str] = Field(default_factory=lambda: ["II", "III"])
+    device_scope: str = "II类和III类有源医疗器械注册"
+
+
+class RegulationAttachmentImport(BaseModel):
+    url: str
+    filename: str = ""
+    source_type: str = "official_attachment"
+    verification_usable: bool = True
 
 
 class RegulationVerify(BaseModel):
@@ -78,10 +102,69 @@ class RegulationVerify(BaseModel):
 
 class RegulationRead(RegulationCreate):
     id: int
+    stored_path: str = ""
+    text_preview: str = ""
+    segment_count: int = 0
     verification_status: str
     verified_by: str
     verified_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class RegulationTextSegmentRead(BaseModel):
+    id: int
+    regulation_id: int
+    attachment_id: Optional[int] = None
+    locator: str
+    text: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RegulationAttachmentRead(BaseModel):
+    id: int
+    regulation_id: int
+    filename: str
+    source_url: str
+    source_page_url: str
+    source_type: str
+    verification_usable: bool
+    sha256: str
+    content_type: str
+    byte_size: int
+    download_status: str
+    download_error: str
+    text_preview: str
+    segment_count: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RegulationSearchResult(BaseModel):
+    regulation_id: int
+    regulation_title: str
+    attachment_id: Optional[int] = None
+    attachment_filename: str = ""
+    attachment_sha256: str = ""
+    locator: str
+    snippet: str
+
+
+class RegulationAttachmentDownloadItem(BaseModel):
+    regulation_id: int
+    regulation_title: str
+    attachment_id: int
+    filename: str
+    source_type: str
+    status: str
+    detail: str = ""
+    segment_count: int = 0
+
+
+class RegulationAttachmentBulkDownloadResponse(BaseModel):
+    total: int
+    downloaded: int
+    skipped: int
+    failed: int
+    results: list[RegulationAttachmentDownloadItem]
 
 
 class FindingRead(BaseModel):
@@ -89,6 +172,12 @@ class FindingRead(BaseModel):
     project_id: int
     rule_id: str
     regulation_id: Optional[int]
+    regulation_attachment_id: Optional[int]
+    regulation_title: str
+    regulation_attachment_filename: str
+    regulation_attachment_sha256: str
+    regulation_evidence_locator: str
+    regulation_evidence_quote: str
     risk_level: str
     title: str
     description: str

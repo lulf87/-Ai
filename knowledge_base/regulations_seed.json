@@ -1,33 +1,396 @@
 [
   {
+    "title": "医疗器械监督管理条例",
+    "reference_number": "国务院令第739号，根据国务院令第797号第二次修订；司法部行政法规库 LawID=1739",
+    "publication_date": "2025-01-07",
+    "official_url": "https://xzfg.moj.gov.cn/law/detail?LawID=1739",
+    "attachment_filename": "医疗器械监督管理条例-司法部行政法规库.docx",
+    "attachment_sha256": "c96a78eadb0019f15591b91a66ccff3c8a7f5dd5cc949040d2f21ee6e879a051",
+    "attachment_url": "https://xzfg.moj.gov.cn/law/download?LawID=1739&type=word",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "医疗器械监督管理条例-司法部行政法规库.docx",
+        "url": "https://xzfg.moj.gov.cn/law/download?LawID=1739&type=word",
+        "sha256": "c96a78eadb0019f15591b91a66ccff3c8a7f5dd5cc949040d2f21ee6e879a051",
+        "source": "司法部国家行政法规库官方 Word 下载",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "",
+    "source_note": "NMPA 旧页面实际显示“网站地址已变更”且无正文；已改用司法部国家行政法规库官方条目和 Word 下载文件作为主数据源，SHA 按浏览器实际下载文件计算。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "II类和III类有源医疗器械注册通用上位法规",
+    "applicable_modules": [
+      "general_submission",
+      "clinical",
+      "labeling",
+      "risk_management"
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "title": "医疗器械注册与备案管理办法",
+    "reference_number": "国家市场监督管理总局令第47号",
+    "publication_date": "2021-08-26",
+    "official_url": "https://www.samr.gov.cn/zw/zfxxgk/fdzdgknr/fgs/art/2023/art_568880e3ee344c45b38d073bba1c53ad.html",
+    "attachment_filename": "W020211127472711503317.docx",
+    "attachment_sha256": "03fb86b620a31b7b2c963b796d51c1281b6ec32041487d186a1232e4ccc4e44d",
+    "attachment_url": "https://www.samr.gov.cn/cms_files/filemanager/samr/www/samrnew/samrgkml/nsjg/fgs/202108/W020211127472711503317.docx",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "W020211127472711503317.docx",
+        "url": "https://www.samr.gov.cn/cms_files/filemanager/samr/www/samrnew/samrgkml/nsjg/fgs/202108/W020211127472711503317.docx",
+        "sha256": "03fb86b620a31b7b2c963b796d51c1281b6ec32041487d186a1232e4ccc4e44d",
+        "verification_usable": true
+      },
+      {
+        "filename": "W020211127472711495387.pdf",
+        "url": "https://www.samr.gov.cn/cms_files/filemanager/samr/www/samrnew/samrgkml/nsjg/fgs/202108/W020211127472711495387.pdf",
+        "sha256": "fa56cf1f7bed2f07eaf9d4a2f8768ee1e23048118c0add02ed88e3d3c6135fed",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "03fb86b620a31b7b2c963b796d51c1281b6ec32041487d186a1232e4ccc4e44d",
+    "source_note": "SAMR 官方页面提供 DOCX/PDF 下载；已按官方附件计算 SHA，DOCX 作为主文本抽取源，PDF 作为官方原版对照源。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "II类和III类有源医疗器械注册与备案程序",
+    "applicable_modules": [
+      "general_submission",
+      "clinical",
+      "testing",
+      "labeling"
+    ],
+    "verification_status": "pending"
+  },
+  {
     "title": "医疗器械注册申报资料要求和批准证明文件格式",
     "reference_number": "国家药监局 2021年第121号",
     "publication_date": "2021-09-30",
-    "official_url": "https://www.nmpa.gov.cn/ylqx/ylqxggtg/20210930155134148.html",
-    "attachment_filename": "待人工下载校验",
+    "official_url": "https://www.nmpa.gov.cn/xxgk/ggtg/ylqxggtg/ylqxqtggtg/20210930155134148.html",
+    "attachment_filename": "国家药品监督管理局2021年第121号公告附件1-9",
     "attachment_sha256": "",
-    "applicable_modules": ["general_submission"],
+    "attachment_url": "",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件1.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988186580021650.doc",
+        "sha256": "d359740df90da956064b219334fccf5e45d644c460960ab59faf2d3fe816ea99",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件2.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988205304086795.doc",
+        "sha256": "b31163fd2bc270f2ce81ffc6f5ff82d79987e52cf90c367d544fa0b0202d96b2",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件3.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988221783066176.doc",
+        "sha256": "057f0cd727ad38a25640a0a77403ffe5849931b2f6cee6f7817ce27657f6a851",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件4.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988231710093747.doc",
+        "sha256": "918de55c070b86dfbcae6d013dcf2ce8afbc1fedd5a1aa84e2c2962ba842c5db",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件5.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1634282952197097025.doc",
+        "sha256": "9cec3ef722dfe4c9b4f4b7caf1e3d208ac4ba8c6bdca67bf22a01c934b33fee5",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件6.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988250494049947.doc",
+        "sha256": "5ae48ce57199d1ae6f69c539f0fc2b44d5d783361c9b20c211fd76ba8692070c",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件7.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988263501098716.doc",
+        "sha256": "b00c4e70ec266a5764e114b131d13995b3fd0a3546522beb566ca51110556341",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件8.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988272729021886.doc",
+        "sha256": "09fec8fe889b85590e9984b71d39e44a512585b338b61b89f56ed9e5b335a6fc",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第121号公告附件9.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632988285420086318.doc",
+        "sha256": "84f97d0fb9a587d4d1dfbc22da619b8616eac3907ab2999ce33d66739d081292",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "",
+    "source_note": "NMPA 官方公告页为法规入口；附件 URL 为公告页列出的官方附件，SHA 已按官方附件下载文件计算。需在本系统下载并抽取附件正文后，才能作为已校验法规数据源。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "II类和III类有源医疗器械首次注册、变更注册、延续注册申报资料框架",
+    "applicable_modules": [
+      "general_submission",
+      "testing",
+      "clinical",
+      "software",
+      "network_security",
+      "risk_management",
+      "labeling"
+    ],
     "verification_status": "pending"
   },
   {
-    "title": "医疗器械产品注册项目立卷审查要求",
-    "reference_number": "国家药监局 2022年第40号",
-    "publication_date": "2022-06-02",
-    "official_url": "https://www.nmpa.gov.cn/",
-    "attachment_filename": "待人工下载校验",
-    "attachment_sha256": "",
-    "applicable_modules": ["general_submission", "testing"],
+    "title": "医疗器械产品技术要求编写指导原则",
+    "reference_number": "国家药监局 2022年第8号",
+    "publication_date": "2022-02-09",
+    "official_url": "https://www.nmpa.gov.cn/ylqx/ylqxggtg/20220209152322130.html",
+    "attachment_filename": "国家药品监督管理局2022年第8号通告附件.doc",
+    "attachment_sha256": "466c5784ecb9d5dd6675cac84bafe9f0ab3fd9e2975a7d85796d1974a4a6134f",
+    "attachment_url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1644391378985084145.doc",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "国家药品监督管理局2022年第8号通告附件.doc",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1644391378985084145.doc",
+        "sha256": "466c5784ecb9d5dd6675cac84bafe9f0ab3fd9e2975a7d85796d1974a4a6134f",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "",
+    "source_note": "官方附件可直连下载，SHA 已按下载文件计算；仍需用户确认该条法规适用性。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "II类和III类有源医疗器械产品技术要求、检验覆盖和标准适用性",
+    "applicable_modules": [
+      "testing",
+      "standards",
+      "general_submission"
+    ],
     "verification_status": "pending"
   },
   {
-    "title": "医疗器械网络安全注册审查指导原则",
-    "reference_number": "CMDE 指导原则",
-    "publication_date": "2022",
-    "official_url": "https://www.cmde.org.cn/",
-    "attachment_filename": "待人工下载校验",
+    "title": "医疗器械临床评价技术指导原则等5项技术指导原则",
+    "reference_number": "国家药监局 2021年第73号",
+    "publication_date": "2021-09-28",
+    "official_url": "https://www.nmpa.gov.cn/ylqx/ylqxggtg/20210928170338138.html",
+    "attachment_filename": "国家药品监督管理局2021年第73号通告附件1-5",
     "attachment_sha256": "",
-    "applicable_modules": ["network_security"],
+    "attachment_url": "",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "国家药品监督管理局2021年第73号通告附件1.docx",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632819763420054609.docx",
+        "sha256": "d1e3e10c56c95180f6bcf3835b4d801e437f9d9c97d957e7539926bcc4c7cd93",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第73号通告附件2.docx",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632819776867038341.docx",
+        "sha256": "e29822baa40a9fc813001309148234557a73bf202fb0bcd3c9cb16dbd5489853",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第73号通告附件3.docx",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632819786391052048.docx",
+        "sha256": "af61cae41a5bacda2d1e9b3df0f5664b1d2c05c8a96772527d018a8242dfb3cf",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第73号通告附件4.docx",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1737100251012055245.docx",
+        "sha256": "8ac844fe779c820987b18b06a4ef9ec55f494d7fc35204cb51da070dd46802ce",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      },
+      {
+        "filename": "国家药品监督管理局2021年第73号通告附件5.docx",
+        "url": "https://www.nmpa.gov.cn/directory/web/nmpa/images/1632819808082069085.docx",
+        "sha256": "cbabbf48ce91da76064f196ef1d1b8b7917bc9e1cd95cbe4ea2703ec42fd597b",
+        "source": "NMPA official attachment",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "",
+    "source_note": "NMPA 官方通告页列出 5 个官方附件；附件 URL 和 SHA 已按浏览器实际下载文件更新，可作为校验数据源。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "II类和III类有源医疗器械临床评价路径、同品种对比和临床证据要求",
+    "applicable_modules": [
+      "clinical",
+      "general_submission"
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "title": "医疗器械软件注册审查指导原则（2022年修订版）",
+    "reference_number": "国家药监局器审中心通告 2022年第9号",
+    "publication_date": "2022-03-09",
+    "official_url": "https://www.cmde.org.cn/flfg/zdyz/zdyzwbk/20220309091706965.html",
+    "attachment_filename": "医疗器械软件注册审查指导原则（2022年修订版）.docx",
+    "attachment_sha256": "4526e98203bb0bd11771b1ea24d84d0d887191dc5463e16bd2d8708dff97943a",
+    "attachment_url": "https://www.cmde.org.cn/directory/web/cmde/images/0r3Bxsb30LXI7bz+16Ky4cnzsunWuLW81K3U8qOoMjAyMsTq0N62qbDmo6mjqDIwMjLE6rXaObrFo6kuZG9jeA==.docx",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "医疗器械软件注册审查指导原则（2022年修订版）.docx",
+        "url": "https://www.cmde.org.cn/directory/web/cmde/images/0r3Bxsb30LXI7bz+16Ky4cnzsunWuLW81K3U8qOoMjAyMsTq0N62qbDmo6mjqDIwMjLE6rXaObrFo6kuZG9jeA==.docx",
+        "sha256": "4526e98203bb0bd11771b1ea24d84d0d887191dc5463e16bd2d8708dff97943a",
+        "source": "CMDE official attachment",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "",
+    "source_note": "CMDE 官方页面正文区仅显示通告摘要，主数据源为页面列出的官方 docx 附件；SHA 按浏览器实际下载文件计算。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "含软件组件或独立软件功能的II类和III类有源医疗器械注册",
+    "applicable_modules": [
+      "software",
+      "general_submission"
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "title": "医疗器械网络安全注册审查指导原则（2022年修订版）",
+    "reference_number": "国家药监局器审中心通告 2022年第7号",
+    "publication_date": "2022-03-09",
+    "official_url": "https://www.cmde.org.cn/flfg/zdyz/zdyzwbk/20220309085900737.html",
+    "attachment_filename": "医疗器械网络安全注册审查指导原则（2022年修订版）.docx",
+    "attachment_sha256": "0c86ba0c14cdd4451441749b9b482801bb256458c516651920be48d1c70fc536",
+    "attachment_url": "https://www.cmde.org.cn/directory/web/cmde/images/0r3Bxsb30LXN+MLnsLLIq9eisuHJ87Lp1ri1vNSt1PKjqDIwMjLE6tDetqmw5qOpo6gyMDIyxOq12je6xaOpLmRvY3g=.docx",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "医疗器械网络安全注册审查指导原则（2022年修订版）.docx",
+        "url": "https://www.cmde.org.cn/directory/web/cmde/images/0r3Bxsb30LXN+MLnsLLIq9eisuHJ87Lp1ri1vNSt1PKjqDIwMjLE6tDetqmw5qOpo6gyMDIyxOq12je6xaOpLmRvY3g=.docx",
+        "sha256": "0c86ba0c14cdd4451441749b9b482801bb256458c516651920be48d1c70fc536",
+        "source": "CMDE official attachment",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "",
+    "source_note": "CMDE 官方页面正文区仅显示通告摘要，主数据源为页面列出的官方 docx 附件；SHA 按浏览器实际下载文件计算。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "具备联网、远程维护、数据交换或电子数据接口的II类和III类有源医疗器械注册",
+    "applicable_modules": [
+      "network_security",
+      "software"
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "title": "人工智能医疗器械注册审查指导原则",
+    "reference_number": "国家药监局器审中心通告 2022年第8号",
+    "publication_date": "2022-03-09",
+    "official_url": "https://www.cmde.org.cn/flfg/zdyz/zdyzwbk/20220309091014461.html",
+    "attachment_filename": "人工智能医疗器械注册审查指导原则（2022年第8号）.docx",
+    "attachment_sha256": "eb048e49669624a925c6530e2bce5fdc72891678db2eadddf7575b3ed050bc02",
+    "attachment_url": "https://www.cmde.org.cn/directory/web/cmde/images/yMu5pNbHxNzSvcHGxvfQtdeisuHJ87Lp1ri1vNSt1PKjqDIwMjLE6rXaOLrFo6kuZG9jeA==.docx",
+    "source_type": "preset",
+    "source_files": [
+      {
+        "filename": "人工智能医疗器械注册审查指导原则（2022年第8号）.docx",
+        "url": "https://www.cmde.org.cn/directory/web/cmde/images/yMu5pNbHxNzSvcHGxvfQtdeisuHJ87Lp1ri1vNSt1PKjqDIwMjLE6rXaOLrFo6kuZG9jeA==.docx",
+        "sha256": "eb048e49669624a925c6530e2bce5fdc72891678db2eadddf7575b3ed050bc02",
+        "source": "CMDE official attachment",
+        "verification_usable": true
+      }
+    ],
+    "source_content_sha256": "",
+    "source_note": "CMDE 官方页面正文区仅显示通告摘要，主数据源为页面列出的官方 docx 附件；SHA 按浏览器实际下载文件计算。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "含人工智能算法功能的II类和III类有源医疗器械注册",
+    "applicable_modules": [
+      "ai_algorithm",
+      "software",
+      "clinical"
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "title": "有源医疗器械使用期限注册技术审查指导原则",
+    "reference_number": "国家药监局器审中心通告 2019年第23号",
+    "publication_date": "2019-05-14",
+    "official_url": "https://www.cmde.org.cn/flfg/zdyz/fbg/fbgyy/20190515101100823.html",
+    "attachment_filename": "",
+    "attachment_sha256": "",
+    "attachment_url": "",
+    "source_type": "preset",
+    "source_files": [],
+    "source_content_sha256": "",
+    "source_note": "CMDE 官方页面可打开，但页面列出的官方附件链接实际跳转到 NMPA 首页，浏览器下载未产生文件；该条仍不能标为已校验，需后续补齐可下载的官方附件或人工上传官方文件。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "需声明使用期限、可靠性或稳定性证据的II类和III类有源医疗器械注册",
+    "applicable_modules": [
+      "reliability",
+      "risk_management"
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "title": "医疗器械说明书和标签管理规定",
+    "reference_number": "国家食品药品监督管理总局令第6号",
+    "publication_date": "2014-07-30",
+    "official_url": "https://www.nmpa.gov.cn/ylqx/ylqxfgwj/ylqxbmgzh/20140730180001248.html",
+    "attachment_filename": "",
+    "attachment_sha256": "",
+    "attachment_url": "",
+    "source_type": "preset",
+    "source_files": [],
+    "source_content_sha256": "c95000c8cec6d1291e0e1e85d6a4b51502b521f5a5d3aa3cbfac8df4bf9a29b2",
+    "source_note": "该条为 NMPA 官方网页正文，无单独附件；SHA 已按浏览器实际渲染 HTML 快照计算，当前运行库已导入该快照正文。",
+    "coverage_classes": [
+      "II",
+      "III"
+    ],
+    "device_scope": "II类和III类有源医疗器械说明书、标签、警示和一次性使用表述",
+    "applicable_modules": [
+      "labeling",
+      "risk_management"
+    ],
     "verification_status": "pending"
   }
 ]
-

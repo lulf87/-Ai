@@ -17,6 +17,7 @@ from backend.app.ai_services import (
     ai_analyze_risks,
     ai_extract_master_data,
     polish_report,
+    regulatory_rag_review,
     review_finding,
     summarize_regulation_impact,
 )
@@ -28,10 +29,13 @@ from backend.app.models import (
     Finding,
     ProductMasterData,
     Project,
+    RegulationAttachment,
     RegulationRecord,
+    RegulationTextSegment,
     Report,
     LLMRun,
 )
+from backend.app import regulations as regulation_services
 from backend.app.reporting import create_report
 from backend.app.rules import run_rules
 from backend.app.schemas import (
@@ -46,14 +50,21 @@ from backend.app.schemas import (
     ProjectCreate,
     ProjectRead,
     RegulationImpactDraftRead,
+    RegulationAttachmentImport,
+    RegulationAttachmentBulkDownloadResponse,
+    RegulationAttachmentDownloadItem,
+    RegulationAttachmentRead,
     RegulationCreate,
     RegulationRead,
+    RegulationSearchResult,
+    RegulationTextSegmentRead,
     RegulationVerify,
+    RegulationWebImport,
     ReportPolishResponse,
     ReportRead,
     RunChecksResponse,
 )
-from backend.app.storage import safe_suffix, save_upload, sha256_file
+from backend.app.storage import safe_suffix, save_regulation_bytes, save_regulation_upload, save_upload, sha256_file
 
 
 @asynccontextmanager
@@ -73,6 +84,7 @@ app.add_middleware(
 
 
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
+SUPPORTED_REGULATION_SUFFIXES = {".doc", ".docx", ".pdf", ".txt", ".md"}
 
 
 def frontend_help_page() -> Response:
@@ -372,6 +384,21 @@ def ai_risk_analysis(
     )
 
 
+@app.post("/projects/{project_id}/regulatory-rag-review", response_model=AIRiskAnalysisResponse)
+def run_regulatory_rag_review(
+    project_id: int,
+    session: Session = Depends(get_session),
+) -> AIRiskAnalysisResponse:
+    try:
+        findings, run = regulatory_rag_review(session, project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return AIRiskAnalysisResponse(
+        findings=[FindingRead.model_validate(finding) for finding in findings],
+        llm_run=LLMRunRead.model_validate(run),
+    )
+
+
 @app.get("/projects/{project_id}/findings", response_model=list[FindingRead])
 def list_findings(project_id: int, session: Session = Depends(get_session)) -> list[Finding]:
     return session.exec(select(Finding).where(Finding.project_id == project_id)).all()
@@ -449,6 +476,503 @@ def list_regulations(session: Session = Depends(get_session)) -> list[Regulation
     return session.exec(select(RegulationRecord).order_by(RegulationRecord.id.desc())).all()
 
 
+@app.get("/regulations/search", response_model=list[RegulationSearchResult])
+def search_regulations(
+    query: str,
+    module: str = "",
+    session: Session = Depends(get_session),
+) -> list[RegulationSearchResult]:
+    needle = query.strip()
+    if not needle:
+        return []
+    records = {
+        record.id: record
+        for record in session.exec(select(RegulationRecord)).all()
+        if not module or module in record.applicable_modules
+    }
+    attachments = {
+        attachment.id: attachment
+        for attachment in session.exec(select(RegulationAttachment)).all()
+    }
+    results: list[RegulationSearchResult] = []
+    for segment in session.exec(select(RegulationTextSegment).order_by(RegulationTextSegment.id)).all():
+        regulation = records.get(segment.regulation_id)
+        if regulation is None or needle not in segment.text:
+            continue
+        attachment = attachments.get(segment.attachment_id or 0)
+        results.append(
+            RegulationSearchResult(
+                regulation_id=regulation.id or 0,
+                regulation_title=regulation.title,
+                attachment_id=attachment.id if attachment else None,
+                attachment_filename=attachment.filename if attachment else "",
+                attachment_sha256=attachment.sha256 if attachment else "",
+                locator=segment.locator,
+                snippet=_snippet(segment.text, needle),
+            )
+        )
+        if len(results) >= 20:
+            break
+    return results
+
+
+@app.get("/regulations/{regulation_id}/attachments", response_model=list[RegulationAttachmentRead])
+def list_regulation_attachments(
+    regulation_id: int,
+    session: Session = Depends(get_session),
+) -> list[RegulationAttachment]:
+    regulation = session.get(RegulationRecord, regulation_id)
+    if regulation is None:
+        raise HTTPException(status_code=404, detail="Regulation not found")
+    return session.exec(
+        select(RegulationAttachment)
+        .where(RegulationAttachment.regulation_id == regulation_id)
+        .order_by(RegulationAttachment.id)
+    ).all()
+
+
+@app.get("/regulations/{regulation_id}/segments", response_model=list[RegulationTextSegmentRead])
+def list_regulation_segments(
+    regulation_id: int,
+    session: Session = Depends(get_session),
+) -> list[RegulationTextSegment]:
+    regulation = session.get(RegulationRecord, regulation_id)
+    if regulation is None:
+        raise HTTPException(status_code=404, detail="Regulation not found")
+    return session.exec(
+        select(RegulationTextSegment)
+        .where(RegulationTextSegment.regulation_id == regulation_id)
+        .order_by(RegulationTextSegment.id)
+    ).all()
+
+
+def _download_and_extract_attachment(
+    session: Session,
+    regulation: RegulationRecord,
+    attachment: RegulationAttachment,
+) -> RegulationAttachment:
+    if not attachment.source_url:
+        raise ValueError("Attachment has no source URL to download")
+    downloaded = regulation_services.download_attachment(
+        attachment.source_url,
+        attachment.filename,
+        referer=attachment.source_page_url or regulation.official_url,
+    )
+    if safe_suffix(downloaded.filename) not in SUPPORTED_REGULATION_SUFFIXES:
+        raise ValueError("Only doc, docx, pdf, txt, and md regulation attachments can be extracted")
+    path, digest = save_regulation_bytes(downloaded.filename, downloaded.content)
+    if attachment.sha256 and attachment.sha256 != digest:
+        raise ValueError("Downloaded attachment SHA does not match the seeded official SHA")
+    segments = extract_text_segments(path)
+    for segment in session.exec(
+        select(RegulationTextSegment).where(
+            RegulationTextSegment.attachment_id == attachment.id
+        )
+    ).all():
+        session.delete(segment)
+    attachment.filename = downloaded.filename
+    attachment.sha256 = digest
+    attachment.stored_path = str(path)
+    attachment.content_type = downloaded.content_type
+    attachment.byte_size = len(downloaded.content)
+    attachment.download_status = "downloaded"
+    attachment.download_error = ""
+    session.add(attachment)
+    regulation_services.write_regulation_segments(session, regulation, segments, attachment)
+    return attachment
+
+
+def _download_and_extract_web_page_source(
+    session: Session,
+    regulation: RegulationRecord,
+) -> RegulationAttachment:
+    if not regulation.official_url:
+        raise ValueError("Regulation has no official URL to download")
+    source = regulation_services.fetch_web_regulation(regulation.official_url)
+    content = source.content or source.text.encode("utf-8")
+    filename = f"regulation-{regulation.id or 'source'}-official-page.html"
+    path, digest = save_regulation_bytes(filename, content)
+    attachment = session.exec(
+        select(RegulationAttachment).where(
+            RegulationAttachment.regulation_id == regulation.id,
+            RegulationAttachment.source_type == "web_page",
+            RegulationAttachment.source_url == regulation.official_url,
+        )
+    ).first()
+    if attachment is None:
+        attachment = regulation_services.create_attachment(
+            session,
+            regulation,
+            filename=filename,
+            source_url=regulation.official_url,
+            source_page_url=regulation.official_url,
+            source_type="web_page",
+            verification_usable=True,
+            sha256=source.content_sha256 or digest,
+            stored_path=str(path),
+            content_type=source.content_type,
+            byte_size=len(content),
+            download_status="downloaded",
+        )
+    else:
+        for segment in session.exec(
+            select(RegulationTextSegment).where(
+                RegulationTextSegment.attachment_id == attachment.id
+            )
+        ).all():
+            session.delete(segment)
+        attachment.filename = filename
+        attachment.sha256 = source.content_sha256 or digest
+        attachment.stored_path = str(path)
+        attachment.content_type = source.content_type
+        attachment.byte_size = len(content)
+        attachment.download_status = "downloaded"
+        attachment.download_error = ""
+        attachment.verification_usable = True
+        session.add(attachment)
+    regulation.source_content_sha256 = source.content_sha256 or digest
+    regulation_services.write_regulation_segments(session, regulation, [("网页正文", source.text)], attachment)
+    return attachment
+
+
+@app.post("/regulations/{regulation_id}/attachments/import-url", response_model=RegulationAttachmentRead)
+def import_regulation_attachment_from_url(
+    regulation_id: int,
+    payload: RegulationAttachmentImport,
+    session: Session = Depends(get_session),
+) -> RegulationAttachment:
+    regulation = session.get(RegulationRecord, regulation_id)
+    if regulation is None:
+        raise HTTPException(status_code=404, detail="Regulation not found")
+    try:
+        downloaded = regulation_services.download_attachment(
+            payload.url,
+            payload.filename,
+            referer=regulation.official_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if safe_suffix(downloaded.filename) not in SUPPORTED_REGULATION_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Only doc, docx, pdf, txt, and md regulation attachments can be extracted")
+    path, digest = save_regulation_bytes(downloaded.filename, downloaded.content)
+    try:
+        segments = extract_text_segments(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    attachment = regulation_services.create_attachment(
+        session,
+        regulation,
+        filename=downloaded.filename,
+        source_url=payload.url,
+        source_page_url=regulation.official_url,
+        source_type=payload.source_type,
+        verification_usable=payload.verification_usable,
+        sha256=digest,
+        stored_path=str(path),
+        content_type=downloaded.content_type,
+        byte_size=len(downloaded.content),
+        download_status="downloaded",
+    )
+    regulation_services.write_regulation_segments(session, regulation, segments, attachment)
+    session.commit()
+    session.refresh(attachment)
+    return attachment
+
+
+@app.post("/regulations/preset-attachments/download", response_model=RegulationAttachmentBulkDownloadResponse)
+def download_preset_regulation_attachments(
+    session: Session = Depends(get_session),
+) -> RegulationAttachmentBulkDownloadResponse:
+    preset_records = {
+        regulation.id: regulation
+        for regulation in session.exec(
+            select(RegulationRecord).where(RegulationRecord.source_type == "preset")
+        ).all()
+    }
+    attachments = session.exec(
+        select(RegulationAttachment)
+        .where(RegulationAttachment.regulation_id.in_(list(preset_records)))
+        .order_by(RegulationAttachment.id)
+    ).all()
+    attachment_record_ids = {attachment.regulation_id for attachment in attachments}
+    results: list[RegulationAttachmentDownloadItem] = []
+    downloaded_count = 0
+    skipped_count = 0
+    failed_count = 0
+    for attachment in attachments:
+        regulation = preset_records.get(attachment.regulation_id)
+        if regulation is None or attachment.id is None:
+            continue
+        if attachment.download_status == "extracted" and attachment.segment_count > 0:
+            skipped_count += 1
+            results.append(
+                RegulationAttachmentDownloadItem(
+                    regulation_id=regulation.id or 0,
+                    regulation_title=regulation.title,
+                    attachment_id=attachment.id,
+                    filename=attachment.filename,
+                    source_type=attachment.source_type,
+                    status="skipped",
+                    detail="already extracted",
+                    segment_count=attachment.segment_count,
+                )
+            )
+            continue
+        try:
+            if attachment.source_type == "web_page":
+                attachment = _download_and_extract_web_page_source(session, regulation)
+            else:
+                _download_and_extract_attachment(session, regulation, attachment)
+            session.commit()
+            session.refresh(attachment)
+            downloaded_count += 1
+            results.append(
+                RegulationAttachmentDownloadItem(
+                    regulation_id=regulation.id or 0,
+                    regulation_title=regulation.title,
+                    attachment_id=attachment.id,
+                    filename=attachment.filename,
+                    source_type=attachment.source_type,
+                    status="downloaded",
+                    segment_count=attachment.segment_count,
+                )
+            )
+        except Exception as exc:
+            session.rollback()
+            attachment = session.get(RegulationAttachment, attachment.id)
+            if attachment is not None:
+                attachment.download_status = "failed"
+                attachment.download_error = str(exc)
+                session.add(attachment)
+                session.commit()
+            failed_count += 1
+            results.append(
+                RegulationAttachmentDownloadItem(
+                    regulation_id=regulation.id or 0,
+                    regulation_title=regulation.title,
+                    attachment_id=attachment.id if attachment else 0,
+                    filename=attachment.filename if attachment else "",
+                    source_type=attachment.source_type if attachment else "",
+                    status="failed",
+                    detail=str(exc),
+                    segment_count=attachment.segment_count if attachment else 0,
+                )
+            )
+    for regulation in preset_records.values():
+        if regulation.id in attachment_record_ids or not regulation.official_url:
+            continue
+        existing_web_page = session.exec(
+            select(RegulationAttachment).where(
+                RegulationAttachment.regulation_id == regulation.id,
+                RegulationAttachment.source_type == "web_page",
+                RegulationAttachment.source_url == regulation.official_url,
+            )
+        ).first()
+        if existing_web_page is not None and existing_web_page.download_status == "extracted" and existing_web_page.segment_count > 0:
+            skipped_count += 1
+            results.append(
+                RegulationAttachmentDownloadItem(
+                    regulation_id=regulation.id or 0,
+                    regulation_title=regulation.title,
+                    attachment_id=existing_web_page.id or 0,
+                    filename=existing_web_page.filename,
+                    source_type=existing_web_page.source_type,
+                    status="skipped",
+                    detail="already extracted",
+                    segment_count=existing_web_page.segment_count,
+                )
+            )
+            continue
+        try:
+            attachment = _download_and_extract_web_page_source(session, regulation)
+            session.commit()
+            session.refresh(attachment)
+            downloaded_count += 1
+            results.append(
+                RegulationAttachmentDownloadItem(
+                    regulation_id=regulation.id or 0,
+                    regulation_title=regulation.title,
+                    attachment_id=attachment.id or 0,
+                    filename=attachment.filename,
+                    source_type=attachment.source_type,
+                    status="downloaded",
+                    segment_count=attachment.segment_count,
+                )
+            )
+        except Exception as exc:
+            session.rollback()
+            failed_count += 1
+            if existing_web_page is None:
+                try:
+                    existing_web_page = regulation_services.create_attachment(
+                        session,
+                        regulation,
+                        filename=f"regulation-{regulation.id or 'source'}-official-page.html",
+                        source_url=regulation.official_url,
+                        source_page_url=regulation.official_url,
+                        source_type="web_page",
+                        verification_usable=True,
+                        download_status="failed",
+                        download_error=str(exc),
+                    )
+                    session.commit()
+                except Exception:
+                    session.rollback()
+            else:
+                existing_web_page.download_status = "failed"
+                existing_web_page.download_error = str(exc)
+                session.add(existing_web_page)
+                session.commit()
+            results.append(
+                RegulationAttachmentDownloadItem(
+                    regulation_id=regulation.id or 0,
+                    regulation_title=regulation.title,
+                    attachment_id=existing_web_page.id if existing_web_page and existing_web_page.id else 0,
+                    filename=existing_web_page.filename if existing_web_page else "",
+                    source_type="web_page",
+                    status="failed",
+                    detail=str(exc),
+                    segment_count=existing_web_page.segment_count if existing_web_page else 0,
+                )
+            )
+    return RegulationAttachmentBulkDownloadResponse(
+        total=len(attachments) + len(
+            [
+                regulation
+                for regulation in preset_records.values()
+                if regulation.id not in attachment_record_ids and regulation.official_url
+            ]
+        ),
+        downloaded=downloaded_count,
+        skipped=skipped_count,
+        failed=failed_count,
+        results=results,
+    )
+
+
+@app.post("/regulations/{regulation_id}/attachments/{attachment_id}/download", response_model=RegulationAttachmentRead)
+def download_existing_regulation_attachment(
+    regulation_id: int,
+    attachment_id: int,
+    session: Session = Depends(get_session),
+) -> RegulationAttachment:
+    regulation = session.get(RegulationRecord, regulation_id)
+    if regulation is None:
+        raise HTTPException(status_code=404, detail="Regulation not found")
+    attachment = session.get(RegulationAttachment, attachment_id)
+    if attachment is None or attachment.regulation_id != regulation_id:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    try:
+        _download_and_extract_attachment(session, regulation, attachment)
+    except Exception as exc:
+        attachment.download_status = "failed"
+        attachment.download_error = str(exc)
+        session.add(attachment)
+        session.commit()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    session.refresh(attachment)
+    return attachment
+
+
+@app.post("/regulations/import/web", response_model=RegulationRead)
+def import_regulation_from_web(
+    payload: RegulationWebImport,
+    session: Session = Depends(get_session),
+) -> RegulationRecord:
+    try:
+        source = regulation_services.fetch_web_regulation(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    regulation = RegulationRecord(
+        title=payload.title or source.title or payload.url,
+        reference_number=payload.reference_number,
+        publication_date=payload.publication_date,
+        official_url=payload.url,
+        source_type="web_import",
+        source_content_sha256=source.content_sha256,
+        source_note="网页正文已导入并计算来源内容 SHA；若要标记为已校验，仍需补充官方附件文件 SHA。",
+        applicable_modules=payload.applicable_modules,
+        coverage_classes=payload.coverage_classes,
+        device_scope=payload.device_scope,
+    )
+    session.add(regulation)
+    session.commit()
+    session.refresh(regulation)
+    regulation_services.write_regulation_segments(session, regulation, [("网页正文", source.text)])
+    session.commit()
+    session.refresh(regulation)
+    return regulation
+
+
+@app.post("/regulations/import/file", response_model=RegulationRead)
+def import_regulation_from_file(
+    title: str = Form(""),
+    official_url: str = Form(""),
+    reference_number: str = Form(""),
+    publication_date: str = Form(""),
+    applicable_modules: str = Form(""),
+    coverage_classes: str = Form("II,III"),
+    device_scope: str = Form("II类和III类有源医疗器械注册"),
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+) -> RegulationRecord:
+    if safe_suffix(file.filename or "") not in SUPPORTED_REGULATION_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Only doc, docx, pdf, txt, and md regulation files are supported")
+    path, digest = save_regulation_upload(file)
+    try:
+        segments = extract_text_segments(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    filename = file.filename or path.name
+    regulation = RegulationRecord(
+        title=title or filename,
+        reference_number=reference_number,
+        publication_date=publication_date,
+        official_url=official_url,
+        attachment_filename=filename,
+        attachment_sha256=digest,
+        source_type="file_import",
+        source_files=[
+            {
+                "filename": filename,
+                "url": official_url,
+                "sha256": digest,
+                "source": "uploaded_file",
+                "verification_usable": True,
+            }
+        ],
+        source_note="上传文件已保存并计算 SHA；法规适用性和官方来源仍需人工确认。",
+        applicable_modules=_split_csv(applicable_modules),
+        coverage_classes=_split_csv(coverage_classes) or ["II", "III"],
+        device_scope=device_scope,
+        stored_path=str(path),
+    )
+    session.add(regulation)
+    session.commit()
+    session.refresh(regulation)
+    attachment = regulation_services.create_attachment(
+        session,
+        regulation,
+        filename=filename,
+        source_url=official_url,
+        source_page_url=official_url,
+        source_type="uploaded_file",
+        verification_usable=True,
+        sha256=digest,
+        stored_path=str(path),
+        content_type=file.content_type or "",
+        byte_size=path.stat().st_size,
+        download_status="uploaded",
+    )
+    regulation_services.write_regulation_segments(session, regulation, segments, attachment)
+    session.commit()
+    session.refresh(regulation)
+    return regulation
+
+
 @app.patch("/regulations/{regulation_id}/verify", response_model=RegulationRead)
 def verify_regulation(
     regulation_id: int,
@@ -459,10 +983,11 @@ def verify_regulation(
     if regulation is None:
         raise HTTPException(status_code=404, detail="Regulation not found")
     if payload.verification_status == "verified":
-        if not regulation.official_url or not regulation.attachment_sha256:
+        has_file_evidence = regulation_services.has_usable_attachment(session, regulation_id)
+        if not regulation.official_url or not has_file_evidence:
             raise HTTPException(
                 status_code=400,
-                detail="Verified regulations require official_url and attachment_sha256",
+                detail="Verified regulations require official_url and at least one extracted source SHA",
             )
         regulation.verified_at = datetime.now(timezone.utc)
     regulation.verification_status = payload.verification_status
@@ -483,3 +1008,16 @@ def ai_summarize_regulation_impact(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return RegulationImpactDraftRead.model_validate(draft)
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _snippet(text: str, needle: str) -> str:
+    index = text.find(needle)
+    if index < 0:
+        return text[:240]
+    start = max(index - 90, 0)
+    end = min(index + len(needle) + 150, len(text))
+    return text[start:end]
