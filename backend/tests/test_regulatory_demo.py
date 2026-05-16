@@ -679,6 +679,130 @@ def test_golden_dataset_identifies_at_least_fourteen_seeded_issues(tmp_path):
     assert "能否获批" not in body["summary"]
 
 
+def test_v03_completeness_trigger_rules_and_dashboard_are_available():
+    client = make_client()
+    project = client.post(
+        "/projects",
+        json={
+            "name": "V0.3 驾驶舱测试",
+            "registration_scenario": "国产三类首次注册",
+            "has_software": True,
+            "is_networked": True,
+            "has_ai": True,
+            "outputs_energy": True,
+        },
+    ).json()
+    uploads = [
+        (
+            "overview",
+            "overview.md",
+            "产品名称：智能微波消融系统\n型号规格：A100、A200\n软件名称：控制软件\n软件版本：V1.0.0\n"
+            "本产品可联网远程维护，支持AI自动推荐消融参数，输出微波能量。",
+        ),
+        (
+            "instructions",
+            "instructions.md",
+            "产品名称：智能微波消融系统\n软件版本：V1.0.1\n适用范围：用于治疗实体肿瘤。",
+        ),
+        (
+            "technical_requirements",
+            "ptq.md",
+            "产品名称：智能微波消融系统\n型号规格：A100、A200\n输出功率准确度 ±10%；温度精度 ±2℃；报警功能。",
+        ),
+        (
+            "test_report",
+            "test-report.md",
+            "检验型号：A100\n检验项目：输出功率准确度。\n结论：符合要求。",
+        ),
+        (
+            "risk_management",
+            "risk.md",
+            "残余风险：组织热损伤。\n风险控制：输出功率报警。",
+        ),
+    ]
+    for document_type, filename, content in uploads:
+        response = client.post(
+            f"/projects/{project['id']}/documents",
+            files={"file": (filename, content.encode("utf-8"), "text/markdown")},
+            data={"document_type": document_type},
+        )
+        assert response.status_code == 200
+
+    extraction = client.post(f"/projects/{project['id']}/extract-master-data")
+    assert extraction.status_code == 200
+
+    run = client.post(f"/projects/{project['id']}/run-checks")
+    assert run.status_code == 200
+    findings = run.json()["findings"]
+    rule_ids = {finding["rule_id"] for finding in findings}
+    assert {
+        "COMPLETE-SOFTWARE",
+        "COMPLETE-CYBERSECURITY",
+        "COMPLETE-AI-ALGORITHM",
+        "PTQ-TEST-COVERAGE",
+        "MULTI-MODEL-COVERAGE",
+    }.issubset(rule_ids)
+    cybersecurity = next(f for f in findings if f["rule_id"] == "COMPLETE-CYBERSECURITY")
+    assert cybersecurity["owner"] == "软件研发/网络安全"
+    assert cybersecurity["workload"] == "软件研发+网络安全评估"
+    assert cybersecurity["category"] == "网络安全"
+
+    matrix = client.get(f"/projects/{project['id']}/consistency-matrix")
+    assert matrix.status_code == 200
+    software_row = next(row for row in matrix.json() if row["field"] == "software_version")
+    assert software_row["status"] == "conflict"
+    assert {
+        item["value"] for item in software_row["values_by_document"] if item["value"]
+    } == {"V1.0.0", "V1.0.1"}
+
+    dashboard = client.get(f"/projects/{project['id']}/dashboard")
+    assert dashboard.status_code == 200
+    body = dashboard.json()
+    assert body["readiness_score"] < 100
+    assert body["risk_counts"]["red"] >= 3
+    assert body["owner_counts"]["软件研发/网络安全"] >= 1
+    assert any("网络安全" in item["title"] for item in body["major_breakpoints"])
+    assert body["next_actions"]
+    assert "申报准备度" in body["boss_summary"]
+
+
+def test_v03_report_front_page_contains_boss_dashboard_summary():
+    client = make_client()
+    project = client.post(
+        "/projects",
+        json={
+            "name": "V0.3 报告测试",
+            "registration_scenario": "国产三类首次注册",
+            "has_software": True,
+            "is_networked": True,
+        },
+    ).json()
+    response = client.post(
+        f"/projects/{project['id']}/documents",
+        files={
+            "file": (
+                "overview.md",
+                "产品名称：联网治疗设备\n软件版本：V1.0.0\n支持联网远程维护。".encode("utf-8"),
+                "text/markdown",
+            )
+        },
+        data={"document_type": "overview"},
+    )
+    assert response.status_code == 200
+    client.post(f"/projects/{project['id']}/extract-master-data")
+    client.post(f"/projects/{project['id']}/run-checks")
+
+    report = client.post(f"/projects/{project['id']}/reports")
+
+    assert report.status_code == 200
+    text = report_text(report.json()["filename"])
+    assert "项目总体风险" in text
+    assert "申报准备度" in text
+    assert "重大申报断点" in text
+    assert "责任人分布" in text
+    assert "网络安全" in text
+
+
 def test_ai_extract_records_desensitized_llm_run_and_field_evidence():
     client = make_client()
     project = create_golden_project(client)

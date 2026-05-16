@@ -8,6 +8,8 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 REGULATION_UPLOAD_DIR = DATA_DIR / "regulations"
 EXTRACTED_TEXT_DIR = DATA_DIR / "extracted_text"
 REPORT_DIR = BASE_DIR / "reports" / "generated"
+OBLIGATION_LIBRARY_PATH = BASE_DIR / "knowledge_base" / "regulatory_obligations_v03.json"
+RULE_CONFIG_PATH = BASE_DIR / "config" / "risk_rules_v03.json"
 DATABASE_PATH = Path(os.getenv("REG_REVIEW_DATABASE_PATH", DATA_DIR / "app.sqlite3")).expanduser()
 if not DATABASE_PATH.is_absolute():
     DATABASE_PATH = BASE_DIR / DATABASE_PATH

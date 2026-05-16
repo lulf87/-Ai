@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlmodel import Session, select
 
 from backend.app.config import BASE_DIR, UPLOAD_DIR
+from backend.app.consistency import build_consistency_matrix
+from backend.app.dashboard import build_dashboard
 from backend.app.database import get_session, init_db
 from backend.app.llm import validate_llm_startup_configuration
 from backend.app.ai_services import (
@@ -43,6 +45,8 @@ from backend.app.schemas import (
     DocumentRead,
     AIExtractMasterDataResponse,
     AIRiskAnalysisResponse,
+    ConsistencyMatrixRow,
+    DashboardRead,
     FindingRead,
     FindingReview,
     LLMRunRead,
@@ -75,7 +79,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="注册资料 AI 辅助检查 V0.1", lifespan=lifespan)
+app = FastAPI(title="注册资料 AI 辅助检查 V0.3", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -405,6 +409,30 @@ def run_checks(project_id: int, session: Session = Depends(get_session)) -> RunC
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return RunChecksResponse(findings=[FindingRead.model_validate(finding) for finding in findings])
+
+
+@app.post("/projects/{project_id}/run-rules", response_model=RunChecksResponse)
+def run_rules_alias(project_id: int, session: Session = Depends(get_session)) -> RunChecksResponse:
+    return run_checks(project_id, session)
+
+
+@app.get("/projects/{project_id}/consistency-matrix", response_model=list[ConsistencyMatrixRow])
+def project_consistency_matrix(
+    project_id: int,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    project = session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return build_consistency_matrix(session, project_id)
+
+
+@app.get("/projects/{project_id}/dashboard", response_model=DashboardRead)
+def project_dashboard(project_id: int, session: Session = Depends(get_session)) -> dict:
+    try:
+        return build_dashboard(session, project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/projects/{project_id}/ai/analyze-risks", response_model=AIRiskAnalysisResponse)

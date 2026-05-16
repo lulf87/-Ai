@@ -7,6 +7,7 @@ from docx import Document
 from sqlmodel import Session, select
 
 from backend.app.config import REPORT_DIR
+from backend.app.dashboard import build_dashboard
 from backend.app.models import Finding, ProductMasterData, Project, Report, utc_now
 
 
@@ -25,12 +26,13 @@ def create_report(session: Session, project_id: int) -> Report:
     findings = reportable_findings(
         session.exec(select(Finding).where(Finding.project_id == project_id)).all()
     )
-    summary = build_summary(findings)
+    dashboard = build_dashboard(session, project_id)
+    summary = dashboard["boss_summary"]
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"project-{project_id}-registration-risk-report.docx"
     path = REPORT_DIR / filename
-    write_docx(path, project, master, findings, summary)
+    write_docx(path, project, master, findings, summary, dashboard)
 
     report = Report(
         project_id=project_id,
@@ -69,13 +71,14 @@ def write_docx(
     master: ProductMasterData | None,
     findings: list[Finding],
     summary: str,
+    dashboard: dict,
 ) -> None:
     document = Document()
     document.add_heading("三类有源医疗器械注册资料预审报告", level=0)
 
     document.add_heading("一、老板摘要", level=1)
     document.add_paragraph("智能辅助分析，非最终注册结论，需人工复核。")
-    document.add_paragraph(summary)
+    add_boss_summary(document, dashboard, summary)
 
     document.add_heading("二、产品主数据表", level=1)
     table = document.add_table(rows=1, cols=2)
@@ -130,6 +133,49 @@ def write_docx(
         document.add_paragraph(f"{finding.title}：{finding.recommended_action}", style="List Bullet")
 
     document.save(path)
+
+
+def add_boss_summary(document: Document, dashboard: dict, summary: str) -> None:
+    risk_counts = dashboard.get("risk_counts", {})
+    red = risk_counts.get("red", 0)
+    yellow = risk_counts.get("yellow", 0)
+    overall = "红" if red else "黄" if yellow else "绿"
+    document.add_paragraph(summary)
+    document.add_paragraph(f"项目总体风险：{overall}")
+    document.add_paragraph(f"申报准备度：{dashboard.get('readiness_score', 0)}/100")
+    document.add_paragraph(
+        f"重大申报断点：{red} 项；预计发补高风险项：{red} 项；需关注项：{yellow} 项。"
+    )
+
+    document.add_paragraph("责任人分布")
+    owner_counts = dashboard.get("owner_counts", {})
+    if owner_counts:
+        for owner, count in owner_counts.items():
+            document.add_paragraph(f"{owner}：{count} 项", style="List Bullet")
+    else:
+        document.add_paragraph("暂无责任人分布。")
+
+    document.add_paragraph("重大申报断点")
+    major_breakpoints = dashboard.get("major_breakpoints", [])
+    if major_breakpoints:
+        for finding in major_breakpoints[:5]:
+            document.add_paragraph(
+                f"{display_text(finding.title)}：{display_text(finding.recommended_action)}",
+                style="List Bullet",
+            )
+    else:
+        document.add_paragraph("暂无红色断点。")
+
+    document.add_paragraph("下一步必须完成的动作")
+    next_actions = dashboard.get("next_actions", [])
+    if next_actions:
+        for action in next_actions:
+            document.add_paragraph(
+                f"{action['owner']}｜{display_text(action['title'])}：{display_text(action['action'])}",
+                style="List Bullet",
+            )
+    else:
+        document.add_paragraph("暂无下一步动作。")
 
 
 def add_findings(document: Document, findings: list[Finding]) -> None:

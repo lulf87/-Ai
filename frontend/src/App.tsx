@@ -92,6 +92,9 @@ type Finding = {
   evidence_quote: string;
   possible_impact: string;
   recommended_action: string;
+  owner: string;
+  workload: string;
+  category: string;
   confidence_status: string;
   source_type: "rule" | "llm_candidate" | "regulatory_rag_candidate" | "rule_llm_confirmed" | "manual";
   ai_rationale: string;
@@ -188,6 +191,39 @@ type AIExtractResponse = {
 type AIRiskResponse = {
   findings: Finding[];
   llm_run: LLMRun;
+};
+
+type ConsistencyMatrixCell = {
+  document_id: number;
+  document_type: string;
+  filename: string;
+  value: string;
+  quote: string;
+};
+
+type ConsistencyMatrixRow = {
+  field: string;
+  label: string;
+  status: "missing" | "weak" | "conflict" | "consistent";
+  values_by_document: ConsistencyMatrixCell[];
+};
+
+type DashboardAction = {
+  title: string;
+  owner: string;
+  action: string;
+  workload: string;
+};
+
+type Dashboard = {
+  project_id: number;
+  readiness_score: number;
+  risk_counts: Record<"red" | "yellow" | "green", number>;
+  category_counts: Record<string, number>;
+  owner_counts: Record<string, number>;
+  major_breakpoints: Finding[];
+  next_actions: DashboardAction[];
+  boss_summary: string;
 };
 
 type RegulationImpactDraft = {
@@ -507,6 +543,8 @@ export function App() {
   const [visibleRegulationCount, setVisibleRegulationCount] = useState(20);
   const [findingFilter, setFindingFilter] = useState<FindingFilter>("all");
   const [latestReport, setLatestReport] = useState<Report | null>(null);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [consistencyMatrix, setConsistencyMatrix] = useState<ConsistencyMatrixRow[]>([]);
   const [status, setStatus] = useState("就绪");
   const [busyTask, setBusyTask] = useState<string | null>(null);
 
@@ -572,6 +610,15 @@ export function App() {
   const highRiskCount = useMemo(
     () => findings.filter((finding) => finding.risk_level === "red").length,
     [findings]
+  );
+  const matrixAttentionRows = useMemo(
+    () => consistencyMatrix.filter((row) => ["conflict", "weak"].includes(row.status)),
+    [consistencyMatrix]
+  );
+  const readinessScore = dashboard?.readiness_score ?? Math.max(0, 100 - highRiskCount * 15);
+  const ownerEntries = useMemo(
+    () => Object.entries(dashboard?.owner_counts ?? {}).sort((a, b) => b[1] - a[1]),
+    [dashboard]
   );
   const findingFilterCounts = useMemo(
     () => ({
@@ -739,12 +786,16 @@ export function App() {
   }
 
   async function refreshProject(projectId: number) {
-    const [documentList, findingList] = await Promise.all([
+    const [documentList, findingList, dashboardData, matrixRows] = await Promise.all([
       request<DocumentRecord[]>(`/projects/${projectId}/documents`),
       request<Finding[]>(`/projects/${projectId}/findings`),
+      request<Dashboard>(`/projects/${projectId}/dashboard`),
+      request<ConsistencyMatrixRow[]>(`/projects/${projectId}/consistency-matrix`),
     ]);
     setDocuments(documentList);
     setFindings(findingList);
+    setDashboard(dashboardData);
+    setConsistencyMatrix(matrixRows);
     try {
       setMasterData(await request<MasterData>(`/projects/${projectId}/master-data`));
     } catch {
@@ -844,6 +895,7 @@ export function App() {
       method: "POST",
     });
     setFindings(result.findings);
+    await refreshProject(selectedProjectId);
     setStatus("规则已完成");
   }
 
@@ -1455,6 +1507,79 @@ export function App() {
           </div>
         </section>
 
+        {selectedProject && (
+          <section className="band boss-dashboard" aria-label="老板版注册风险驾驶舱">
+            <div className="dashboard-hero">
+              <div>
+                <p className="workspace-kicker">注册风险驾驶舱</p>
+                <h2>{dashboard?.boss_summary ?? "运行规则后生成申报准备度和重大断点摘要"}</h2>
+              </div>
+              <div className={`readiness-dial ${readinessScore < 70 ? "danger" : readinessScore < 90 ? "warning" : "success"}`}>
+                <span>申报准备度</span>
+                <strong>{readinessScore}</strong>
+              </div>
+            </div>
+            <div className="dashboard-grid">
+              <div className="dashboard-block">
+                <span>重大申报断点</span>
+                <strong>{dashboard?.risk_counts.red ?? highRiskCount}</strong>
+                <p>红色风险优先进入整改闭环</p>
+              </div>
+              <div className="dashboard-block">
+                <span>主数据一致性</span>
+                <strong>{matrixAttentionRows.length}</strong>
+                <p>{matrixAttentionRows.length ? "存在冲突或覆盖较弱字段" : "暂无明显冲突"}</p>
+              </div>
+              <div className="dashboard-block">
+                <span>责任人分布</span>
+                <strong>{ownerEntries.length}</strong>
+                <p>{ownerEntries[0] ? `${ownerEntries[0][0]} ${ownerEntries[0][1]} 项` : "待运行规则"}</p>
+              </div>
+            </div>
+            <div className="dashboard-columns">
+              <div>
+                <h3>下一步动作</h3>
+                <div className="action-list">
+                  {dashboard?.next_actions.length ? (
+                    dashboard.next_actions.map((action, index) => (
+                      <div key={`${action.title}-${index}`} className="action-row">
+                        <span>{action.owner}</span>
+                        <strong>{displayText(action.title)}</strong>
+                        <p>{displayText(action.action)}</p>
+                        <small>{action.workload}</small>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="section-note">运行规则后显示需要跨部门处理的动作。</p>
+                  )}
+                </div>
+              </div>
+              <div>
+                <h3>一致性矩阵关注项</h3>
+                <div className="matrix-list">
+                  {matrixAttentionRows.length ? (
+                    matrixAttentionRows.slice(0, 5).map((row) => (
+                      <div key={row.field} className={`matrix-row ${row.status}`}>
+                        <span>{row.status === "conflict" ? "冲突" : "覆盖弱"}</span>
+                        <strong>{row.label}</strong>
+                        <p>
+                          {row.values_by_document
+                            .filter((item) => item.value)
+                            .slice(0, 3)
+                            .map((item) => `${item.filename}：${item.value}`)
+                            .join("；") || "未识别到字段证据"}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="section-note">资料之间的产品名称、型号、软件版本等字段暂无重点提示。</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
         <section className="band workbench-grid">
           <div className="main-flow">
             <form className="panel" onSubmit={uploadDocument}>
@@ -1975,6 +2100,13 @@ export function App() {
                         <p className="finding-evidence-preview">依据：{displayText(firstEvidenceLine(finding))}</p>
                         {finding.recommended_action && (
                           <p className="action-text">建议：{displayText(compactText(finding.recommended_action, 72))}</p>
+                        )}
+                        {(finding.owner || finding.workload || finding.category) && (
+                          <div className="finding-owner-line">
+                            {finding.category && <span>{finding.category}</span>}
+                            {finding.owner && <span>{finding.owner}</span>}
+                            {finding.workload && <span>{finding.workload}</span>}
+                          </div>
                         )}
                         <details className="finding-details">
                           <summary>证据与处理建议</summary>

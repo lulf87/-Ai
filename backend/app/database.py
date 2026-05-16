@@ -46,6 +46,9 @@ def run_lightweight_migrations() -> None:
             "regulation_attachment_sha256": "VARCHAR DEFAULT ''",
             "regulation_evidence_locator": "VARCHAR DEFAULT ''",
             "regulation_evidence_quote": "VARCHAR DEFAULT ''",
+            "owner": "VARCHAR DEFAULT ''",
+            "workload": "VARCHAR DEFAULT ''",
+            "category": "VARCHAR DEFAULT ''",
         }
         for column, definition in finding_text_columns.items():
             if finding_columns and column not in finding_columns:

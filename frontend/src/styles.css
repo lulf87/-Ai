@@ -447,6 +447,148 @@ button:disabled svg {
   color: #93c5fd;
 }
 
+.boss-dashboard {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.dashboard-hero {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.dashboard-hero h2 {
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.readiness-dial {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  min-width: 118px;
+  padding: 12px;
+}
+
+.readiness-dial span,
+.dashboard-block span,
+.action-row span,
+.matrix-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.readiness-dial strong {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.readiness-dial.success {
+  background: #effaf3;
+  border-color: #b9dfc6;
+  color: var(--green);
+}
+
+.readiness-dial.warning {
+  background: #fff8e6;
+  border-color: #f0d38a;
+  color: var(--amber);
+}
+
+.readiness-dial.danger {
+  background: #fff1ef;
+  border-color: #efb7ad;
+  color: var(--red);
+}
+
+.dashboard-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-block {
+  background: #f8fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  min-height: 98px;
+  padding: 12px;
+}
+
+.dashboard-block strong {
+  display: block;
+  font-size: 24px;
+  line-height: 1.1;
+  margin-top: 7px;
+}
+
+.dashboard-block p,
+.action-row p,
+.matrix-row p {
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-columns {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dashboard-columns h3 {
+  margin-bottom: 8px;
+}
+
+.action-list,
+.matrix-list {
+  display: grid;
+  gap: 8px;
+}
+
+.action-row,
+.matrix-row {
+  background: #fbfcfd;
+  border: 1px solid var(--line-soft);
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+}
+
+.action-row strong,
+.matrix-row strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.action-row small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.matrix-row.conflict {
+  border-left-color: var(--red);
+}
+
+.matrix-row.weak {
+  border-left-color: var(--amber);
+}
+
 .two-columns {
   display: grid;
   gap: 16px;
@@ -1248,6 +1390,21 @@ button:disabled svg {
   line-height: 1.45;
 }
 
+.finding-owner-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.finding-owner-line span {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(96, 113, 122, 0.18);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  line-height: 1.2;
+  padding: 4px 8px;
+}
+
 .impact-text {
   color: var(--muted);
   font-size: 12px;
@@ -1275,6 +1432,9 @@ button:disabled svg {
   .master-grid,
   .checklist-grid,
   .metric-grid,
+  .dashboard-hero,
+  .dashboard-grid,
+  .dashboard-columns,
   .project-form-grid,
   .regulation-import-grid,
   .regulation-manual-form,

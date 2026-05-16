@@ -186,6 +186,9 @@ class FindingRead(BaseModel):
     evidence_quote: str
     possible_impact: str
     recommended_action: str
+    owner: str
+    workload: str
+    category: str
     confidence_status: str
     source_type: str
     ai_rationale: str
@@ -203,6 +206,39 @@ class FindingReview(BaseModel):
 
 class RunChecksResponse(BaseModel):
     findings: list[FindingRead]
+
+
+class ConsistencyMatrixCell(BaseModel):
+    document_id: int
+    document_type: str
+    filename: str
+    value: str
+    quote: str
+
+
+class ConsistencyMatrixRow(BaseModel):
+    field: str
+    label: str
+    status: str
+    values_by_document: list[ConsistencyMatrixCell]
+
+
+class DashboardAction(BaseModel):
+    title: str
+    owner: str
+    action: str
+    workload: str
+
+
+class DashboardRead(BaseModel):
+    project_id: int
+    readiness_score: int
+    risk_counts: dict[str, int]
+    category_counts: dict[str, int]
+    owner_counts: dict[str, int]
+    major_breakpoints: list[FindingRead]
+    next_actions: list[DashboardAction]
+    boss_summary: str
 
 
 class ReportRead(BaseModel):

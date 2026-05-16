@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from backend.app.consistency import build_consistency_matrix
 from sqlmodel import Session, delete, select
 
 from backend.app.master_data import contains_any, extract_master_data, first_label_value
@@ -14,6 +15,7 @@ from backend.app.models import (
     Project,
     RegulationRecord,
 )
+from backend.app.obligations import load_rule_config, matching_obligations
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,49 @@ class RuleMeta:
     risk_level: str
     possible_impact: str
     recommended_action: str
+    category: str = ""
+    owner: str = ""
+    workload: str = ""
+
+
+OWNER_BY_CATEGORY = {
+    "资料完整性": "注册负责人",
+    "主数据一致性": "注册负责人+研发",
+    "软件": "软件研发/注册",
+    "网络安全": "软件研发/网络安全",
+    "AI算法": "算法团队/临床评价",
+    "检测覆盖": "研发+检测接口人",
+    "临床评价": "临床评价负责人",
+    "风险管理": "质量/风险管理",
+    "说明书标签": "注册负责人/市场医学",
+    "标准": "法规/研发",
+    "OCR": "注册助理",
+}
+
+
+CATEGORY_BY_MODULE = {
+    "general_submission": "主数据一致性",
+    "software": "软件",
+    "network_security": "网络安全",
+    "testing": "检测覆盖",
+    "standards": "标准",
+    "reliability": "风险管理",
+    "labeling": "说明书标签",
+    "risk_management": "风险管理",
+    "clinical": "临床评价",
+    "ai_algorithm": "AI算法",
+}
+
+
+REQUIRED_DOCUMENT_TYPES = {
+    "application_form": "注册申请表",
+    "overview": "产品综述资料",
+    "technical_requirements": "产品技术要求",
+    "instructions": "说明书",
+    "risk_management": "风险管理资料",
+    "clinical_evaluation": "临床评价资料/免临床说明",
+    "test_report": "注册检验/检测报告",
+}
 
 
 RULES: dict[str, RuleMeta] = {
@@ -146,6 +191,64 @@ RULES: dict[str, RuleMeta] = {
         "red",
         "临床证据不足时直接给出免临床或充分有效结论，可能误导注册路径。",
         "将结论改为待确认，补充同品种对比、目录依据或临床评价证据。",
+        "临床评价",
+        "临床评价负责人",
+        "临床评价专项补充",
+    ),
+    "COMPLETE-SOFTWARE": RuleMeta(
+        "COMPLETE-SOFTWARE",
+        "software",
+        "产品触发软件研究资料，但资料包缺少软件研究资料",
+        "red",
+        "软件安全性级别、运行环境、生命周期、验证确认和缺陷管理无法被审查。",
+        "补充软件研究资料，至少覆盖软件标识、安全性级别、运行环境、需求、架构、V&V、缺陷管理、可追溯性和更新历史。",
+        "软件",
+        "软件研发/注册",
+        "研发+注册专项补充",
+    ),
+    "COMPLETE-CYBERSECURITY": RuleMeta(
+        "COMPLETE-CYBERSECURITY",
+        "network_security",
+        "产品触发网络安全研究资料，但资料包缺少网络安全资料",
+        "red",
+        "可能无法证明数据交换、访问控制、漏洞管理、补丁管理和安全更新策略的充分性。",
+        "补充网络安全研究资料，包含资产/接口、数据流、身份认证、访问控制、加密、漏洞评估、补丁和应急响应。",
+        "网络安全",
+        "软件研发/网络安全",
+        "软件研发+网络安全评估",
+    ),
+    "COMPLETE-AI-ALGORITHM": RuleMeta(
+        "COMPLETE-AI-ALGORITHM",
+        "ai_algorithm",
+        "AI/算法触发，但缺少算法研究资料",
+        "red",
+        "算法数据集、训练验证、性能评价、泛化性和偏倚控制缺乏证据。",
+        "补充算法研究资料，明确算法用途、输入输出、训练/验证/测试集、性能指标、偏倚控制、失败模式和临床证据。",
+        "AI算法",
+        "算法团队/临床评价",
+        "算法团队+临床评价专项补充",
+    ),
+    "PTQ-TEST-COVERAGE": RuleMeta(
+        "PTQ-TEST-COVERAGE",
+        "testing",
+        "产品技术要求指标未在检测报告中形成覆盖矩阵",
+        "red",
+        "可能导致补检、检测报告补充说明或 PTQ 指标修订。",
+        "建立 PTQ-检测报告覆盖矩阵：每个指标对应样品型号、检测项目、结果、结论和报告页码。",
+        "检测覆盖",
+        "研发+检测接口人",
+        "检测接口确认/可能补检",
+    ),
+    "MULTI-MODEL-COVERAGE": RuleMeta(
+        "MULTI-MODEL-COVERAGE",
+        "testing",
+        "多型号产品缺少代表型号/覆盖逻辑",
+        "yellow",
+        "可能要求说明注册单元划分、代表型号选择、检测覆盖和型号差异。",
+        "补充型号差异表、代表型号选择依据、检测覆盖矩阵和注册单元划分说明。",
+        "检测覆盖",
+        "研发+检测接口人",
+        "研发+检测接口确认",
     ),
 }
 
@@ -205,8 +308,10 @@ def run_rules(session: Session, project_id: int) -> list[Finding]:
         )
     )
     contexts = load_contexts(session, project_id)
+    triggers = triggered_features(project, master, contexts)
     findings: list[Finding] = []
 
+    findings.extend(check_document_completeness(contexts, project_id, session, triggers))
     add_if(findings, check_name_consistency(contexts, project_id, session))
     add_if(findings, check_model_consistency(contexts, project_id, session))
     add_if(findings, check_structure_consistency(contexts, project_id, session))
@@ -222,6 +327,9 @@ def run_rules(session: Session, project_id: int) -> list[Finding]:
     add_if(findings, check_representative_model(contexts, project_id, session, master))
     add_if(findings, check_ai_algorithm(contexts, project_id, session, project))
     add_if(findings, check_clinical_overclaim(contexts, project_id, session))
+    add_if(findings, check_ptq_test_coverage(contexts, project_id, session))
+    add_if(findings, check_multi_model_coverage(contexts, project_id, session, master))
+    findings.extend(check_configured_obligations(contexts, project_id, session, triggers))
 
     for finding in findings:
         session.add(finding)
@@ -265,6 +373,7 @@ def make_finding(
     meta = RULES[rule_id]
     evidence = find_evidence(contexts, terms)
     regulation = verified_regulation(session, meta.module)
+    category = meta.category or CATEGORY_BY_MODULE.get(meta.module, meta.module)
     return Finding(
         project_id=project_id,
         rule_id=rule_id,
@@ -277,6 +386,9 @@ def make_finding(
         evidence_quote=evidence_text or (quote(evidence.text, terms) if evidence else ""),
         possible_impact=meta.possible_impact,
         recommended_action=meta.recommended_action,
+        owner=meta.owner or OWNER_BY_CATEGORY.get(category, "注册负责人"),
+        workload=meta.workload or "资料修订/人工确认",
+        category=category,
         confidence_status="evidence_based" if evidence or evidence_text else "pending_evidence",
         source_type="rule",
         review_status="confirmed",
@@ -397,6 +509,181 @@ def unique_normalized(values: dict[str, str] | dict[str, LabeledEvidence]) -> se
         elif value:
             normalized_values.append(value)
     return {normalize(value) for value in normalized_values if value}
+
+
+def document_types(contexts: list[SegmentContext]) -> set[str]:
+    return {context.document_type for context in contexts}
+
+
+def has_document(contexts: list[SegmentContext], *types: str) -> bool:
+    available = document_types(contexts)
+    return any(document_type in available for document_type in types)
+
+
+def triggered_features(
+    project: Project,
+    master: ProductMasterData,
+    contexts: list[SegmentContext],
+) -> dict[str, bool]:
+    text = all_text(contexts)
+    model_text = master.model_specifications or first_label_value(text, ["型号规格", "型号"])
+    return {
+        "has_software": project.has_software
+        or bool(master.software_name or master.software_version)
+        or contains_any(text, ["软件", "版本", "嵌入式程序"]),
+        "is_networked": project.is_networked
+        or master.is_networked
+        or contains_any(
+            text,
+            ["联网", "网络连接", "远程", "云端", "数据传输", "电子数据交换", "用户登录", "USB", "存储介质"],
+        ),
+        "has_ai": project.has_ai
+        or contains_any(
+            text,
+            ["人工智能", "AI", "深度学习", "机器学习", "算法", "辅助诊断", "自动识别", "分割", "预测", "自动推荐"],
+        ),
+        "outputs_energy": project.outputs_energy
+        or master.outputs_energy
+        or contains_any(
+            text,
+            ["输出能量", "射频", "微波", "脉冲电场", "激光", "超声", "辐射", "消融", "电刺激"],
+        ),
+        "multi_model": bool(re.search(r"(、|,|，|/|;|；)", model_text)),
+        "clinical_claim": contains_any(
+            text, ["治疗", "诊断", "辅助诊断", "准确率", "灵敏度", "特异性", "疗效", "适应症"]
+        ),
+        "electrical_device": contains_any(text, ["有源", "电气", "供电", "电源", "EMC", "电磁兼容", "GB 9706", "IEC 60601"]),
+    }
+
+
+def check_document_completeness(
+    contexts: list[SegmentContext],
+    project_id: int,
+    session: Session,
+    triggers: dict[str, bool],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    available = document_types(contexts)
+    for document_type, label in REQUIRED_DOCUMENT_TYPES.items():
+        if document_type not in available:
+            level = "red" if document_type in {"technical_requirements", "test_report", "risk_management"} else "yellow"
+            findings.append(
+                make_completeness_finding(
+                    session=session,
+                    contexts=contexts,
+                    project_id=project_id,
+                    rule_id=f"COMPLETE-{document_type.upper()}",
+                    risk_level=level,
+                    title=f"缺少{label}",
+                    description=f"当前资料包未识别到“{label}”。这是注册资料预审的基础断点。",
+                    recommended_action=f"补充或上传{label}；如确实不适用，应提交不适用理由和证据。",
+                    category="资料完整性",
+                    owner="注册负责人",
+                    workload="内部补资料/注册整理",
+                )
+            )
+    if triggers.get("has_software") and not has_document(contexts, "software"):
+        findings.append(
+            make_finding(
+                session,
+                contexts,
+                project_id,
+                "COMPLETE-SOFTWARE",
+                "资料中出现软件、版本、嵌入式程序或算法相关特征，但未上传软件研究资料。",
+                ["软件", "版本", "嵌入式程序"],
+                evidence_text=missing_special_evidence(
+                    contexts,
+                    ["软件", "版本", "嵌入式程序"],
+                    "软件研究资料",
+                    "未上传或未识别到软件研究资料。",
+                ),
+            )
+        )
+    if triggers.get("is_networked") and not has_document(contexts, "cybersecurity"):
+        findings.append(
+            make_finding(
+                session,
+                contexts,
+                project_id,
+                "COMPLETE-CYBERSECURITY",
+                "资料中出现联网、远程、云端、数据传输、用户登录、USB/存储介质交换等触发词。",
+                ["联网", "远程", "云端", "数据传输", "用户登录", "USB"],
+                evidence_text=missing_special_evidence(
+                    contexts,
+                    ["联网", "远程", "云端", "数据传输", "用户登录", "USB"],
+                    "网络安全研究资料",
+                    "未上传或未识别到网络安全研究资料。",
+                ),
+            )
+        )
+    if triggers.get("has_ai") and not has_document(contexts, "algorithm", "ai_algorithm"):
+        findings.append(
+            make_finding(
+                session,
+                contexts,
+                project_id,
+                "COMPLETE-AI-ALGORITHM",
+                "资料中存在人工智能、深度学习、辅助诊断、自动识别、分割或预测等声称。",
+                ["人工智能", "AI", "深度学习", "算法", "辅助诊断", "自动识别", "预测", "自动推荐"],
+                evidence_text=missing_special_evidence(
+                    contexts,
+                    ["人工智能", "AI", "深度学习", "算法", "辅助诊断", "自动识别", "预测", "自动推荐"],
+                    "AI/算法研究资料",
+                    "未上传或未识别到算法基本信息、训练/验证数据和性能评价资料。",
+                ),
+            )
+        )
+    return findings
+
+
+def make_completeness_finding(
+    *,
+    session: Session,
+    contexts: list[SegmentContext],
+    project_id: int,
+    rule_id: str,
+    risk_level: str,
+    title: str,
+    description: str,
+    recommended_action: str,
+    category: str,
+    owner: str,
+    workload: str,
+) -> Finding:
+    regulation = verified_regulation(session, "general_submission")
+    return Finding(
+        project_id=project_id,
+        rule_id=rule_id,
+        regulation_id=regulation.id if regulation else None,
+        risk_level=risk_level,
+        title=title,
+        description=description,
+        evidence_quote=missing_evidence_line(title, "未上传或未识别到对应资料。"),
+        possible_impact="可能导致申报资料不完整、内部预审无法闭环，正式申报时形成发补或退回风险。",
+        recommended_action=recommended_action,
+        owner=owner,
+        workload=workload,
+        category=category,
+        confidence_status="pending_evidence" if not contexts else "evidence_based",
+        source_type="rule",
+        review_status="confirmed",
+    )
+
+
+def missing_special_evidence(
+    contexts: list[SegmentContext],
+    terms: list[str],
+    document_name: str,
+    statement: str,
+) -> str:
+    return "\n".join(
+        part
+        for part in [
+            format_term_evidence(contexts, terms),
+            missing_evidence_line(document_name, statement),
+        ]
+        if part
+    )
 
 
 def check_name_consistency(contexts: list[SegmentContext], project_id: int, session: Session) -> Finding | None:
@@ -749,3 +1036,113 @@ def check_clinical_overclaim(contexts: list[SegmentContext], project_id: int, se
             evidence_text=evidence_text,
         )
     return None
+
+
+def check_ptq_test_coverage(contexts: list[SegmentContext], project_id: int, session: Session) -> Finding | None:
+    technical = text_for(contexts, "technical_requirements")
+    test_report = text_for(contexts, "test_report")
+    if not technical or not test_report:
+        return None
+    candidate_terms = sorted(
+        set(
+            re.findall(
+                r"(?:输出功率|准确度|精度|能量|温度|剂量|灵敏度|特异性|电气安全|EMC|电磁兼容|报警|软件版本|网络安全)[^。；;\n]{0,16}",
+                technical,
+                re.I,
+            )
+        )
+    )
+    missing = [
+        term.strip()
+        for term in candidate_terms
+        if term.strip() and term.strip() not in test_report and term.strip()[:6] not in test_report
+    ]
+    if missing:
+        return make_finding(
+            session,
+            contexts,
+            project_id,
+            "PTQ-TEST-COVERAGE",
+            "产品技术要求中部分性能/安全指标未在检测报告文本中找到对应项目。",
+            ["产品技术要求", "检验报告", "检测报告"],
+            evidence_text="未覆盖示例：" + "；".join(missing[:10]),
+        )
+    return None
+
+
+def check_multi_model_coverage(
+    contexts: list[SegmentContext],
+    project_id: int,
+    session: Session,
+    master: ProductMasterData,
+) -> Finding | None:
+    text = all_text(contexts)
+    models = master.model_specifications or first_label_value(text, ["型号规格", "型号"])
+    has_multiple_models = bool(re.search(r"(、|,|，|/|;|；)", models))
+    has_coverage_logic = contains_any(text, ["代表型号", "最不利型号", "覆盖", "差异比较", "型号差异"])
+    if has_multiple_models and not has_coverage_logic:
+        evidence_text = "\n".join(
+            part
+            for part in [
+                format_term_evidence(contexts, ["型号规格", "型号", "检验型号"], limit=4),
+                missing_evidence_line("代表型号/型号差异说明", "未识别到代表型号选择依据或型号差异比较。"),
+            ]
+            if part
+        )
+        return make_finding(
+            session,
+            contexts,
+            project_id,
+            "MULTI-MODEL-COVERAGE",
+            "资料中出现多个型号规格，但未识别到代表型号选择依据或型号差异比较。",
+            ["型号规格", "型号", "检验型号"],
+            evidence_text=evidence_text,
+        )
+    return None
+
+
+def check_configured_obligations(
+    contexts: list[SegmentContext],
+    project_id: int,
+    session: Session,
+    triggers: dict[str, bool],
+) -> list[Finding]:
+    combined = all_text(contexts)
+    rule_config = load_rule_config()
+    findings: list[Finding] = []
+    for obligation in matching_obligations(triggers):
+        missing = [evidence for evidence in obligation.evidence_required if evidence not in combined]
+        if not missing:
+            continue
+        category = obligation.module
+        trigger_line = "；".join(
+            f"{key}={triggers.get(key, False)}" for key in obligation.applies_when
+        )
+        findings.append(
+            Finding(
+                project_id=project_id,
+                rule_id=f"OBLIGATION-{obligation.id}",
+                risk_level=obligation.risk_if_missing,
+                title=f"法规义务证据缺口：{obligation.title}",
+                description=(
+                    f"触发条件：{'、'.join(obligation.applies_when)}；"
+                    f"缺少证据：{'、'.join(missing[:8])}。"
+                ),
+                evidence_quote=f"项目触发器：{trigger_line}；缺少证据：{'、'.join(missing[:8])}。",
+                possible_impact="条款级义务缺少材料证据，可能转化为发补问题。",
+                recommended_action=f"按义务库补齐证据：{'、'.join(obligation.evidence_required)}。",
+                owner=obligation.suggested_owner or OWNER_BY_CATEGORY.get(category, "注册负责人"),
+                workload="专项资料补充/模板更新",
+                category=category,
+                confidence_status="pending_evidence",
+                source_type="rule",
+                review_status="confirmed",
+                regulation_title=obligation.source_title,
+                regulation_evidence_quote=(
+                    f"权威等级：{obligation.authority_level}；"
+                    f"规则配置版本：{rule_config.get('version', 'unknown')}。"
+                    "该义务库条目需法规负责人逐条 verified 后才能作为最终法规结论。"
+                ),
+            )
+        )
+    return findings

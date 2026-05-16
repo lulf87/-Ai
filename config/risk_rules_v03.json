@@ -1,0 +1,30 @@
+{
+  "version": "v0.3-risk-driver-rules",
+  "positioning": "老板视角注册资料发补风险预警，不替代注册负责人或审评结论",
+  "rules": [
+    {
+      "id": "COMPLETE-SOFTWARE",
+      "category": "软件",
+      "trigger": "has_software",
+      "evidence_type": "软件研究资料",
+      "risk_if_missing": "red",
+      "owner": "软件研发/注册"
+    },
+    {
+      "id": "COMPLETE-CYBERSECURITY",
+      "category": "网络安全",
+      "trigger": "is_networked",
+      "evidence_type": "网络安全研究资料",
+      "risk_if_missing": "red",
+      "owner": "软件研发/网络安全"
+    },
+    {
+      "id": "PTQ-TEST-COVERAGE",
+      "category": "检测覆盖",
+      "trigger": "technical_requirements + test_report",
+      "evidence_type": "PTQ-检测报告覆盖矩阵",
+      "risk_if_missing": "red",
+      "owner": "研发+检测接口人"
+    }
+  ]
+}

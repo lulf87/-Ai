@@ -1,0 +1,49 @@
+{
+  "description": "条款级义务库雏形。用于把法规/指导原则转为可执行检查项；真实项目应由注册法规负责人逐条 verified。",
+  "obligations": [
+    {
+      "id": "software-study-core",
+      "module": "软件",
+      "title": "含软件产品应提交软件研究资料并覆盖生命周期证据",
+      "applies_when": ["has_software"],
+      "evidence_required": ["软件安全性级别", "运行环境", "验证", "确认", "缺陷", "可追溯", "更新历史"],
+      "authority_level": "NMPA/CMDE 指导原则-需人工确认版本",
+      "source_title": "医疗器械软件注册审查相关指导原则（条款级映射占位）",
+      "suggested_owner": "软件研发/注册",
+      "risk_if_missing": "yellow"
+    },
+    {
+      "id": "cybersecurity-study-core",
+      "module": "网络安全",
+      "title": "具备电子数据交换/远程访问/用户访问能力时应提交网络安全研究资料",
+      "applies_when": ["is_networked"],
+      "evidence_required": ["数据流", "接口", "身份认证", "访问控制", "加密", "漏洞", "补丁", "应急"],
+      "authority_level": "NMPA/CMDE 指导原则-需人工确认版本",
+      "source_title": "医疗器械网络安全注册审查相关指导原则（条款级映射占位）",
+      "suggested_owner": "软件研发/网络安全",
+      "risk_if_missing": "red"
+    },
+    {
+      "id": "ai-algorithm-study-core",
+      "module": "AI算法",
+      "title": "AI/深度学习类产品应提交算法、数据和性能评价证据",
+      "applies_when": ["has_ai"],
+      "evidence_required": ["训练集", "验证集", "测试集", "数据来源", "标注", "性能评价", "泛化", "偏倚"],
+      "authority_level": "NMPA/CMDE 指导原则-需人工确认版本",
+      "source_title": "人工智能医疗器械注册审查相关指导原则（条款级映射占位）",
+      "suggested_owner": "算法团队/临床评价",
+      "risk_if_missing": "red"
+    },
+    {
+      "id": "energy-safety-core",
+      "module": "风险管理",
+      "title": "输出能量产品应证明能量输出、剂量/温升和残余风险可接受",
+      "applies_when": ["outputs_energy"],
+      "evidence_required": ["能量", "剂量", "温升", "报警", "防护", "残余风险"],
+      "authority_level": "有源高风险产品审查关注点-需人工确认来源",
+      "source_title": "有源高风险医疗器械非临床与风险管理资料要求（义务映射占位）",
+      "suggested_owner": "研发测试+质量/风险管理",
+      "risk_if_missing": "red"
+    }
+  ]
+}
