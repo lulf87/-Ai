@@ -215,12 +215,21 @@ type DashboardAction = {
   workload: string;
 };
 
+type DashboardMissingDocument = {
+  document_type: string;
+  label: string;
+  section: string;
+};
+
 type Dashboard = {
   project_id: number;
   readiness_score: number;
   risk_counts: Record<"red" | "yellow" | "green", number>;
   category_counts: Record<string, number>;
   owner_counts: Record<string, number>;
+  required_document_count: number;
+  uploaded_required_document_count: number;
+  missing_required_documents: DashboardMissingDocument[];
   major_breakpoints: Finding[];
   next_actions: DashboardAction[];
   boss_summary: string;
@@ -574,15 +583,35 @@ export function App() {
       };
     });
   }, [documents, projectDraft, selectedProject, uploadedDocumentTypes]);
-  const requiredDocumentCount = useMemo(
+  const localRequiredDocumentCount = useMemo(
     () => checklistRows.filter((row) => row.expected).length,
     [checklistRows]
   );
-  const uploadedRequiredCount = useMemo(
+  const localUploadedRequiredCount = useMemo(
     () => checklistRows.filter((row) => row.expected && row.uploaded).length,
     [checklistRows]
   );
-  const missingRequiredCount = Math.max(requiredDocumentCount - uploadedRequiredCount, 0);
+  const localMissingRequiredDocuments = useMemo(
+    () =>
+      checklistRows
+        .filter((row) => row.expected && !row.uploaded)
+        .map((row) => ({
+          document_type: row.value,
+          label: row.label,
+          section: row.section,
+        })),
+    [checklistRows]
+  );
+  const requiredDocumentCount = dashboard?.required_document_count ?? localRequiredDocumentCount;
+  const uploadedRequiredCount = dashboard?.uploaded_required_document_count ?? localUploadedRequiredCount;
+  const missingRequiredDocuments = dashboard
+    ? dashboard.missing_required_documents
+    : localMissingRequiredDocuments;
+  const missingRequiredCount = missingRequiredDocuments.length;
+  const missingRequiredPreview = missingRequiredDocuments
+    .slice(0, 3)
+    .map((document) => document.label)
+    .join("、");
   const hasMasterData = useMemo(
     () => masterFields.some(([key]) => Boolean(masterData[key])),
     [masterData]
@@ -1442,7 +1471,21 @@ export function App() {
               <div>
                 <span>关键资料</span>
                 <strong>{uploadedRequiredCount}/{requiredDocumentCount || documentTypeOptions.length}</strong>
-                <p>{missingRequiredCount ? `仍缺 ${missingRequiredCount} 项` : "必需资料已覆盖"}</p>
+                <p>
+                  {missingRequiredCount
+                    ? `缺：${missingRequiredPreview}${missingRequiredCount > 3 ? ` 等 ${missingRequiredCount} 项` : ""}`
+                    : "必需资料已覆盖"}
+                </p>
+                {missingRequiredCount > 0 && (
+                  <details className="metric-missing-details">
+                    <summary>查看全部缺项</summary>
+                    <div className="missing-doc-list">
+                      {missingRequiredDocuments.map((document) => (
+                        <span key={document.document_type}>{document.label}</span>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
             </article>
             <article className={highRiskCount ? "metric-card danger" : "metric-card"}>
@@ -1524,6 +1567,11 @@ export function App() {
                 <span>重大申报断点</span>
                 <strong>{dashboard?.risk_counts.red ?? highRiskCount}</strong>
                 <p>红色风险优先进入整改闭环</p>
+              </div>
+              <div className="dashboard-block">
+                <span>资料缺口</span>
+                <strong>{missingRequiredCount}</strong>
+                <p>{missingRequiredCount ? missingRequiredPreview : "关键资料已覆盖"}</p>
               </div>
               <div className="dashboard-block">
                 <span>主数据一致性</span>

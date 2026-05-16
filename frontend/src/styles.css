@@ -343,6 +343,37 @@ button:disabled svg {
   overflow-wrap: anywhere;
 }
 
+.metric-missing-details {
+  margin-top: 8px;
+}
+
+.metric-missing-details summary {
+  color: var(--primary-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.missing-doc-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.missing-doc-list span {
+  background: #fff8e6;
+  border: 1px solid #f2d08d;
+  border-radius: 6px;
+  color: #6d520b;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 4px 6px;
+}
+
 .metric-card.success {
   border-color: #bddfcc;
 }
@@ -514,7 +545,7 @@ button:disabled svg {
 .dashboard-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .dashboard-block {

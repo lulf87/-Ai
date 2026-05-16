@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from backend.app.document_checklist import build_document_readiness
 from backend.app.models import Finding, Project
 
 
@@ -22,6 +23,7 @@ def build_dashboard(session: Session, project_id: int) -> dict[str, Any]:
     risk_counts = Counter(finding.risk_level for finding in active_findings)
     category_counts = Counter(finding.category or "未分类" for finding in active_findings)
     owner_counts = Counter(finding.owner or "未分配" for finding in active_findings)
+    document_readiness = build_document_readiness(session, project)
     readiness_score = max(
         0,
         100
@@ -41,6 +43,7 @@ def build_dashboard(session: Session, project_id: int) -> dict[str, Any]:
         }
         for finding in major_breakpoints[:5]
     ]
+    missing_count = len(document_readiness["missing_required_documents"])
     return {
         "project_id": project_id,
         "readiness_score": readiness_score,
@@ -51,10 +54,13 @@ def build_dashboard(session: Session, project_id: int) -> dict[str, Any]:
         },
         "category_counts": dict(category_counts),
         "owner_counts": dict(owner_counts),
+        **document_readiness,
         "major_breakpoints": major_breakpoints,
         "next_actions": next_actions,
         "boss_summary": (
             f"项目“{project.name}”当前申报准备度 {readiness_score}/100；"
+            f"关键资料已覆盖 {document_readiness['uploaded_required_document_count']}/"
+            f"{document_readiness['required_document_count']} 项，仍缺 {missing_count} 项；"
             f"红色断点 {risk_counts.get('red', 0)} 项，黄色风险 {risk_counts.get('yellow', 0)} 项。"
             "优先处理资料缺失、主数据不一致、软件/网络安全、PTQ-检测覆盖和说明书声称证据闭环。"
         ),

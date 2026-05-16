@@ -230,12 +230,21 @@ class DashboardAction(BaseModel):
     workload: str
 
 
+class DashboardMissingDocument(BaseModel):
+    document_type: str
+    label: str
+    section: str
+
+
 class DashboardRead(BaseModel):
     project_id: int
     readiness_score: int
     risk_counts: dict[str, int]
     category_counts: dict[str, int]
     owner_counts: dict[str, int]
+    required_document_count: int
+    uploaded_required_document_count: int
+    missing_required_documents: list[DashboardMissingDocument]
     major_breakpoints: list[FindingRead]
     next_actions: list[DashboardAction]
     boss_summary: str

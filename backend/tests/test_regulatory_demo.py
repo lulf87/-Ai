@@ -761,6 +761,13 @@ def test_v03_completeness_trigger_rules_and_dashboard_are_available():
     assert body["readiness_score"] < 100
     assert body["risk_counts"]["red"] >= 3
     assert body["owner_counts"]["软件研发/网络安全"] >= 1
+    assert body["required_document_count"] == 18
+    assert body["uploaded_required_document_count"] == 5
+    missing_labels = {item["label"] for item in body["missing_required_documents"]}
+    assert "注册申请表" in missing_labels
+    assert "网络安全研究资料" in missing_labels
+    assert "AI/算法研究资料" in missing_labels
+    assert "产品技术要求" not in missing_labels
     assert any("网络安全" in item["title"] for item in body["major_breakpoints"])
     assert body["next_actions"]
     assert "申报准备度" in body["boss_summary"]
