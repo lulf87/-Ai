@@ -87,6 +87,11 @@ app.add_middleware(
 
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 SUPPORTED_REGULATION_SUFFIXES = {".doc", ".docx", ".pdf", ".txt", ".md"}
+SUPPORTED_SAMPLE_SUFFIXES = {".doc", ".docx", ".pdf", ".txt", ".md"}
+SAMPLE_DOCUMENT_SETS = {
+    "golden-microwave": BASE_DIR / "samples" / "golden" / "microwave_ablation",
+    "local-pfe-catheter": BASE_DIR / "samples" / "local_reports" / "pfe_catheter",
+}
 
 
 def frontend_help_page() -> Response:
@@ -232,24 +237,44 @@ def upload_document(
     return record
 
 
-@app.post("/projects/{project_id}/sample-documents/golden-microwave", response_model=list[DocumentRead])
-def load_golden_sample_documents(
+@app.post("/projects/{project_id}/sample-documents/{sample_key}", response_model=list[DocumentRead])
+def load_sample_documents(
     project_id: int,
+    sample_key: str,
     session: Session = Depends(get_session),
 ) -> list[DocumentRecord]:
     project = session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    sample_dir = BASE_DIR / "samples" / "golden" / "microwave_ablation"
+    sample_dir = SAMPLE_DOCUMENT_SETS.get(sample_key)
+    if sample_dir is None:
+        raise HTTPException(status_code=404, detail="Sample document set not found")
     if not sample_dir.is_dir():
-        raise HTTPException(status_code=404, detail="Golden sample not found")
+        raise HTTPException(status_code=404, detail="Sample document set not found")
 
     records = []
-    for sample in sorted(sample_dir.glob("*.md")):
-        document_type = sample.stem.split("_", 1)[1]
+    for sample, document_type in sample_documents(sample_dir):
         record = create_document_record_from_path(project_id, document_type, sample, session)
         records.append(record)
+    if not records:
+        raise HTTPException(status_code=404, detail="Sample document set has no supported documents")
     return records
+
+
+def sample_documents(sample_dir: Path) -> list[tuple[Path, str]]:
+    documents: list[tuple[Path, str]] = []
+    for sample in sorted(sample_dir.iterdir()):
+        prefix, separator, document_type = sample.stem.partition("_")
+        if (
+            not sample.is_file()
+            or sample.suffix.lower() not in SUPPORTED_SAMPLE_SUFFIXES
+            or separator != "_"
+            or not prefix.isdigit()
+            or not document_type
+        ):
+            continue
+        documents.append((sample, document_type))
+    return documents
 
 
 def create_document_record_from_path(

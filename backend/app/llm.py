@@ -556,6 +556,8 @@ def codex_prompt(task: str, payload: dict[str, Any], output_contract: dict[str, 
         "不要输出最终获批判断；AI 候选风险必须保持待人工复核语气。\n"
         "面向非技术用户：标题、描述、建议和证据不要使用字段名、枚举值、变量名、英文状态码或开发术语；"
         "证据必须说明“哪份资料/哪个文件写了什么”。\n"
+        "若输出风险候选：标题不超过18个汉字；描述、可能影响、建议和智能理由各用一句话，避免重复；"
+        "描述不超过70个汉字，可能影响、建议和智能理由各不超过60个汉字；证据摘录只保留关键句。\n"
         "请只输出一个 JSON object，不要 Markdown，不要解释性前后缀。\n"
         f"task={task}\n"
         "input=desensitized_excerpts_only\n"

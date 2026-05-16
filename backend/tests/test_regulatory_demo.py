@@ -556,6 +556,30 @@ def test_project_can_load_golden_sample_documents_from_ui_flow():
     assert {doc["parse_status"] for doc in documents} == {"parsed"}
 
 
+def test_project_can_load_local_report_sample_documents():
+    client = make_client()
+    project = client.post(
+        "/projects",
+        json={
+            "name": "本地报告样例加载项目",
+            "registration_scenario": "国产三类首次注册",
+        },
+    ).json()
+
+    response = client.post(f"/projects/{project['id']}/sample-documents/local-pfe-catheter")
+
+    assert response.status_code == 200, response.text
+    documents = response.json()
+    assert {doc["document_type"] for doc in documents} == {
+        "technical_requirements",
+        "instructions",
+        "risk_management",
+        "test_report",
+        "labels",
+    }
+    assert {doc["parse_status"] for doc in documents} == {"parsed"}
+
+
 def test_golden_sample_load_is_idempotent():
     client = make_client()
     project = client.post(

@@ -278,6 +278,41 @@ const taskLabels: Record<string, string> = {
   polish_report: "报告摘要润色",
 };
 
+const findingAreaOrder = [
+  "core",
+  "testing",
+  "software",
+  "clinical",
+  "labeling",
+  "risk",
+  "regulatory",
+  "other",
+] as const;
+
+type FindingArea = (typeof findingAreaOrder)[number];
+
+const findingAreaLabels: Record<FindingArea, string> = {
+  core: "核心信息",
+  testing: "检验与标准",
+  software: "软件与算法",
+  clinical: "临床评价",
+  labeling: "说明书标签",
+  risk: "风险控制",
+  regulatory: "法规依据",
+  other: "其他问题",
+};
+
+const findingFilterLabels = {
+  all: "全部",
+  red: "高风险",
+  pending: "待确认",
+  rule: "规则发现",
+  ai: "智能候选",
+  rag: "法规依据",
+} as const;
+
+type FindingFilter = keyof typeof findingFilterLabels;
+
 const regulationModuleLabels: Record<string, string> = {
   general_submission: "申报资料",
   testing: "技术要求/检验",
@@ -312,6 +347,114 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body || response.statusText);
   }
   return response.json() as Promise<T>;
+}
+
+function compactText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(maxLength - 1, 0))}…`;
+}
+
+function findingArea(finding: Finding): FindingArea {
+  const ruleId = finding.rule_id.toUpperCase();
+  const text = [
+    finding.rule_id,
+    finding.title,
+    finding.description,
+    finding.possible_impact,
+    finding.recommended_action,
+    finding.evidence_document,
+    finding.regulation_title,
+  ].join(" ");
+
+  if (
+    ruleId.includes("NAME") ||
+    ruleId.includes("MODEL") ||
+    ruleId.includes("STRUCTURE") ||
+    ruleId.includes("INTENDED-USE")
+  ) {
+    return "core";
+  }
+  if (
+    ruleId.includes("TEST") ||
+    ruleId.includes("STANDARD") ||
+    ruleId.includes("REPRESENTATIVE")
+  ) {
+    return "testing";
+  }
+  if (
+    ruleId.includes("CLINICAL") ||
+    ruleId.includes("UNSUPPORTED-CLAIM") ||
+    /临床|同品种|免于临床|单臂|30例/.test(text)
+  ) {
+    return "clinical";
+  }
+  if (
+    ruleId.includes("DISPOSABLE") ||
+    ruleId.includes("LABEL") ||
+    /说明书|标签|一次性|重复使用|清洁消毒|包装/.test(text)
+  ) {
+    return "labeling";
+  }
+  if (
+    ruleId.includes("RISK") ||
+    ruleId.includes("CONTRAINDICATION") ||
+    ruleId.includes("SERVICE-LIFE") ||
+    ruleId.includes("RELIABILITY") ||
+    ruleId.includes("ENERGY")
+  ) {
+    return "risk";
+  }
+  if (
+    ruleId.includes("SOFTWARE") ||
+    ruleId.includes("NETWORK") ||
+    ruleId.includes("AI") ||
+    ruleId.includes("ALGORITHM") ||
+    /软件|网络安全|联网|算法|人工智能|智能算法|自动推荐|训练验证/.test(text)
+  ) {
+    return "software";
+  }
+  if (
+    /检验|标准|代表型号|产品技术要求|性能指标|GB|YY/.test(text)
+  ) {
+    return "testing";
+  }
+  if (
+    /风险|禁忌|警示|剩余风险|使用期限|可靠性|输出能量/.test(text)
+  ) {
+    return "risk";
+  }
+  if (
+    ruleId.includes("NAME") ||
+    ruleId.includes("MODEL") ||
+    ruleId.includes("STRUCTURE") ||
+    ruleId.includes("INTENDED-USE") ||
+    /产品名称|型号规格|结构组成|适用范围|主数据|综述资料/.test(text)
+  ) {
+    return "core";
+  }
+  if (finding.source_type === "regulatory_rag_candidate" || finding.regulation_evidence_quote) {
+    return "regulatory";
+  }
+  return "other";
+}
+
+function compareFindings(a: Finding, b: Finding) {
+  const riskRank = { red: 0, yellow: 1, green: 2 };
+  const reviewRank = { pending_review: 0, confirmed: 1, edited: 2, rejected: 3 };
+  const sourceRank = {
+    rule: 0,
+    rule_llm_confirmed: 1,
+    regulatory_rag_candidate: 2,
+    llm_candidate: 3,
+    manual: 4,
+  };
+  return (
+    riskRank[a.risk_level] - riskRank[b.risk_level] ||
+    reviewRank[a.review_status] - reviewRank[b.review_status] ||
+    sourceRank[a.source_type] - sourceRank[b.source_type] ||
+    a.id - b.id
+  );
 }
 
 export function App() {
@@ -359,6 +502,10 @@ export function App() {
   });
   const [regulationSearchQuery, setRegulationSearchQuery] = useState("");
   const [regulationSearchResults, setRegulationSearchResults] = useState<RegulationSearchResult[]>([]);
+  const [regulationListQuery, setRegulationListQuery] = useState("");
+  const [regulationStatusFilter, setRegulationStatusFilter] = useState("all");
+  const [visibleRegulationCount, setVisibleRegulationCount] = useState(20);
+  const [findingFilter, setFindingFilter] = useState<FindingFilter>("all");
   const [latestReport, setLatestReport] = useState<Report | null>(null);
   const [status, setStatus] = useState("就绪");
   const [busyTask, setBusyTask] = useState<string | null>(null);
@@ -426,9 +573,67 @@ export function App() {
     () => findings.filter((finding) => finding.risk_level === "red").length,
     [findings]
   );
+  const findingFilterCounts = useMemo(
+    () => ({
+      all: findings.length,
+      red: findings.filter((finding) => finding.risk_level === "red").length,
+      pending: findings.filter((finding) => finding.review_status === "pending_review").length,
+      rule: findings.filter((finding) => ["rule", "rule_llm_confirmed"].includes(finding.source_type)).length,
+      ai: findings.filter((finding) => finding.source_type === "llm_candidate").length,
+      rag: findings.filter((finding) => finding.source_type === "regulatory_rag_candidate").length,
+    }),
+    [findings]
+  );
+  const visibleFindings = useMemo(() => {
+    const filtered = findings.filter((finding) => {
+      if (findingFilter === "red") return finding.risk_level === "red";
+      if (findingFilter === "pending") return finding.review_status === "pending_review";
+      if (findingFilter === "rule") return ["rule", "rule_llm_confirmed"].includes(finding.source_type);
+      if (findingFilter === "ai") return finding.source_type === "llm_candidate";
+      if (findingFilter === "rag") return finding.source_type === "regulatory_rag_candidate";
+      return true;
+    });
+    return [...filtered].sort(compareFindings);
+  }, [findingFilter, findings]);
+  const findingGroups = useMemo(
+    () =>
+      findingAreaOrder
+        .map((area) => ({
+          area,
+          findings: visibleFindings.filter((finding) => findingArea(finding) === area),
+        }))
+        .filter((group) => group.findings.length > 0),
+    [visibleFindings]
+  );
   const verifiedRegulationCount = useMemo(
     () => regulations.filter((regulation) => regulation.verification_status === "verified").length,
     [regulations]
+  );
+  const filteredRegulations = useMemo(() => {
+    const query = regulationListQuery.trim().toLowerCase();
+    return regulations.filter((regulation) => {
+      const statusMatched =
+        regulationStatusFilter === "all" ||
+        regulation.verification_status === regulationStatusFilter ||
+        (regulationStatusFilter === "pending" && regulation.verification_status !== "verified");
+      if (!statusMatched) return false;
+      if (!query) return true;
+      return [
+        regulation.title,
+        regulation.reference_number,
+        regulation.device_scope,
+        regulation.source_note,
+        ...regulation.applicable_modules.map(moduleLabel),
+        ...regulation.coverage_classes,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [regulationListQuery, regulationStatusFilter, regulations]);
+  const visibleRegulations = useMemo(
+    () => filteredRegulations.slice(0, visibleRegulationCount),
+    [filteredRegulations, visibleRegulationCount]
   );
   const workflowSteps = useMemo(
     () => [
@@ -499,6 +704,10 @@ export function App() {
       refreshProject(selectedProjectId);
     }
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    setVisibleRegulationCount(20);
+  }, [regulationListQuery, regulationStatusFilter]);
 
   async function refreshAll() {
     const [projectList] = await Promise.all([
@@ -1024,6 +1233,14 @@ export function App() {
     return header ? [header, ...quoteLines] : quoteLines;
   }
 
+  function findingDetailLine(finding: Finding) {
+    return compactText(finding.description || finding.possible_impact || "需人工复核该项资料与证据。", 92);
+  }
+
+  function firstEvidenceLine(finding: Finding) {
+    return compactText(evidenceLines(finding)[0] ?? "暂无可展示证据，请人工补充资料后复核。", 104);
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -1238,8 +1455,9 @@ export function App() {
           </div>
         </section>
 
-        <section className="band two-columns">
-          <form className="panel" onSubmit={uploadDocument}>
+        <section className="band workbench-grid">
+          <div className="main-flow">
+            <form className="panel" onSubmit={uploadDocument}>
             <div className="panel-title">
               <FileText size={18} />
               <h2>资料包</h2>
@@ -1280,8 +1498,10 @@ export function App() {
                 </div>
               )}
             </div>
-          </form>
+            </form>
+          </div>
 
+          <aside className="regulation-dock" aria-label="法规库">
           <div className="panel regulation-panel">
             <div className="panel-title actions-title">
               <div className="panel-title">
@@ -1441,8 +1661,30 @@ export function App() {
                 ))}
               </div>
             )}
+            <div className="regulation-filter-bar">
+              <label>
+                快速筛选
+                <input
+                  value={regulationListQuery}
+                  onChange={(event) => setRegulationListQuery(event.target.value)}
+                  placeholder="标题、文号、模块"
+                />
+              </label>
+              <label>
+                校验状态
+                <select
+                  value={regulationStatusFilter}
+                  onChange={(event) => setRegulationStatusFilter(event.target.value)}
+                >
+                  <option value="all">全部法规</option>
+                  <option value="verified">已校验</option>
+                  <option value="pending">待校验</option>
+                </select>
+              </label>
+              <span>显示 {visibleRegulations.length}/{filteredRegulations.length} 条</span>
+            </div>
             <div className="regulation-list">
-              {regulations.map((regulation) => (
+              {visibleRegulations.length ? visibleRegulations.map((regulation) => (
                 <div key={regulation.id} className="regulation-card">
                   <div className="regulation-card-main">
                     <div>
@@ -1483,42 +1725,6 @@ export function App() {
                       </a>
                     )}
                   </div>
-                  {regulation.source_note && <p className="regulation-note">{regulation.source_note}</p>}
-                  {attachmentsFor(regulation).length > 0 && (
-                    <div className="attachment-list">
-                      {attachmentsFor(regulation).slice(0, 3).map((attachment) => (
-                        <div key={attachment.id} className="attachment-row">
-                          <span>{attachmentSourceLabels[attachment.source_type] ?? attachment.source_type}</span>
-                          <strong>{attachment.filename}</strong>
-                          <span>
-                            {attachmentStatusLabel(attachment)} ·
-                            {attachment.segment_count} 段 · {shortSha(attachment.sha256)}
-                          </span>
-                          {attachment.source_url &&
-                            attachment.verification_usable &&
-                            !isAttachmentEvidenceReady(attachment) && (
-                              <button
-                                type="button"
-                                className="inline-action"
-                                onClick={() => downloadKnownAttachment(regulation.id, attachment.id)}
-                              >
-                                <Download size={14} />
-                                下载抽取
-                              </button>
-                            )}
-                          {attachment.download_error && (
-                            <span className="attachment-error">{attachment.download_error}</span>
-                          )}
-                        </div>
-                      ))}
-                      {attachmentsFor(regulation).length > 3 && (
-                        <span className="regulation-note">
-                          还有 {attachmentsFor(regulation).length - 3} 个附件未展开
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {regulation.text_preview && <p className="impact-draft">{regulation.text_preview}</p>}
                   <div className="button-row regulation-actions">
                     <button
                       type="button"
@@ -1534,15 +1740,72 @@ export function App() {
                       智能摘要
                     </button>
                   </div>
-                  {regulationImpacts[regulation.id] && (
-                    <p className="impact-draft">{regulationImpacts[regulation.id].summary}</p>
-                  )}
+                  <details className="regulation-details">
+                    <summary>查看附件与正文</summary>
+                    {regulation.source_note && <p className="regulation-note">{regulation.source_note}</p>}
+                    {attachmentsFor(regulation).length > 0 && (
+                      <div className="attachment-list">
+                        {attachmentsFor(regulation).slice(0, 3).map((attachment) => (
+                          <div key={attachment.id} className="attachment-row">
+                            <span>{attachmentSourceLabels[attachment.source_type] ?? attachment.source_type}</span>
+                            <strong>{attachment.filename}</strong>
+                            <span>
+                              {attachmentStatusLabel(attachment)} ·
+                              {attachment.segment_count} 段 · {shortSha(attachment.sha256)}
+                            </span>
+                            {attachment.source_url &&
+                              attachment.verification_usable &&
+                              !isAttachmentEvidenceReady(attachment) && (
+                                <button
+                                  type="button"
+                                  className="inline-action"
+                                  onClick={() => downloadKnownAttachment(regulation.id, attachment.id)}
+                                >
+                                  <Download size={14} />
+                                  下载抽取
+                                </button>
+                              )}
+                            {attachment.download_error && (
+                              <span className="attachment-error">{attachment.download_error}</span>
+                            )}
+                          </div>
+                        ))}
+                        {attachmentsFor(regulation).length > 3 && (
+                          <span className="regulation-note">
+                            还有 {attachmentsFor(regulation).length - 3} 个附件未展开
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {regulation.text_preview && <p className="impact-draft">{regulation.text_preview}</p>}
+                    {regulationImpacts[regulation.id] && (
+                      <p className="impact-draft">{regulationImpacts[regulation.id].summary}</p>
+                    )}
+                  </details>
                 </div>
-              ))}
+              )) : (
+                <div className="empty-state">
+                  <Search size={18} />
+                  <div>
+                    <strong>没有匹配的法规</strong>
+                    <p>调整标题、文号、模块或校验状态筛选后再试。</p>
+                  </div>
+                </div>
+              )}
             </div>
+            {filteredRegulations.length > visibleRegulationCount && (
+              <button
+                type="button"
+                className="secondary-button load-more-button"
+                onClick={() => setVisibleRegulationCount((count) => count + 20)}
+              >
+                加载更多法规
+              </button>
+            )}
           </div>
-        </section>
+          </aside>
 
+          <div className="main-flow">
         <section className="band">
           <div className="panel">
             <div className="panel-title actions-title">
@@ -1669,59 +1932,99 @@ export function App() {
                 高风险 {highRiskCount}
               </span>
             </div>
+            <div className="finding-filter-bar" aria-label="风险清单筛选">
+              {(Object.keys(findingFilterLabels) as FindingFilter[]).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  className={findingFilter === filter ? "finding-filter-button active" : "finding-filter-button"}
+                  onClick={() => setFindingFilter(filter)}
+                >
+                  {findingFilterLabels[filter]}
+                  <span>{findingFilterCounts[filter]}</span>
+                </button>
+              ))}
+            </div>
             <div className="findings">
-              {findings.length ? (
-                findings.map((finding) => (
-                  <article key={finding.id} className={`finding ${finding.risk_level}`}>
-                    <div className="finding-head">
-                      <span className={`risk-badge ${finding.risk_level}`}>{riskLevelLabels[finding.risk_level]}</span>
-                      <span className={`source-badge ${finding.source_type}`}>{sourceLabel(finding)}</span>
-                      <span className={`review-badge ${finding.review_status}`}>
-                        {reviewStatusLabels[finding.review_status]}
-                      </span>
+              {findingGroups.length ? (
+                findingGroups.map((group) => (
+                  <section key={group.area} className="finding-group">
+                    <div className="finding-group-head">
+                      <h3>{findingAreaLabels[group.area]}</h3>
+                      <span>{group.findings.length} 条</span>
                     </div>
-                    <div>
-                      <h3>{displayText(finding.title)}</h3>
-                    </div>
-                    <p>{displayText(finding.description)}</p>
-                    <div className="evidence-block">
-                      <strong>资料依据</strong>
-                      {evidenceLines(finding).map((line, index) => (
-                        <p key={`${finding.id}-${index}`}>{displayText(line)}</p>
-                      ))}
-                    </div>
-                    {finding.regulation_evidence_quote && (
-                      <div className="evidence-block regulation-evidence-block">
-                        <strong>法规依据</strong>
-                        {regulationEvidenceLines(finding).map((line, index) => (
-                          <p key={`${finding.id}-regulation-${index}`}>{displayText(line)}</p>
-                        ))}
-                      </div>
-                    )}
-                    {finding.ai_rationale && (
-                      <p className="ai-rationale">{displayText(finding.ai_rationale)}</p>
-                    )}
-                    <p className="action-text">建议处理：{displayText(finding.recommended_action)}</p>
-                    {["llm_candidate", "regulatory_rag_candidate"].includes(finding.source_type) && finding.review_status === "pending_review" && (
-                      <div className="button-row review-actions">
-                        <button type="button" onClick={() => reviewFinding(finding.id, "confirmed")}>
-                          <Check size={16} />
-                          确认
-                        </button>
-                        <button type="button" className="secondary-button" onClick={() => reviewFinding(finding.id, "rejected")}>
-                          <X size={16} />
-                          驳回
-                        </button>
-                      </div>
-                    )}
-                  </article>
+                    {group.findings.map((finding) => (
+                      <article key={finding.id} className={`finding ${finding.risk_level}`}>
+                        <div className="finding-head">
+                          <span className={`risk-badge ${finding.risk_level}`}>
+                            {riskLevelLabels[finding.risk_level]}
+                          </span>
+                          <span className={`area-badge area-${findingArea(finding)}`}>
+                            {findingAreaLabels[findingArea(finding)]}
+                          </span>
+                          <span className={`source-badge ${finding.source_type}`}>{sourceLabel(finding)}</span>
+                          <span className={`review-badge ${finding.review_status}`}>
+                            {reviewStatusLabels[finding.review_status]}
+                          </span>
+                        </div>
+                        <div className="finding-title-row">
+                          <h3>{displayText(finding.title)}</h3>
+                          <span>{finding.rule_id}</span>
+                        </div>
+                        <p className="finding-summary">{displayText(findingDetailLine(finding))}</p>
+                        <p className="finding-evidence-preview">依据：{displayText(firstEvidenceLine(finding))}</p>
+                        {finding.recommended_action && (
+                          <p className="action-text">建议：{displayText(compactText(finding.recommended_action, 72))}</p>
+                        )}
+                        <details className="finding-details">
+                          <summary>证据与处理建议</summary>
+                          <div className="evidence-block">
+                            <strong>资料依据</strong>
+                            {evidenceLines(finding).map((line, index) => (
+                              <p key={`${finding.id}-${index}`}>{displayText(line)}</p>
+                            ))}
+                          </div>
+                          {finding.regulation_evidence_quote && (
+                            <div className="evidence-block regulation-evidence-block">
+                              <strong>法规依据</strong>
+                              {regulationEvidenceLines(finding).map((line, index) => (
+                                <p key={`${finding.id}-regulation-${index}`}>{displayText(line)}</p>
+                              ))}
+                            </div>
+                          )}
+                          {finding.ai_rationale && (
+                            <p className="ai-rationale">智能理由：{displayText(finding.ai_rationale)}</p>
+                          )}
+                          {finding.possible_impact && (
+                            <p className="impact-text">可能影响：{displayText(finding.possible_impact)}</p>
+                          )}
+                        </details>
+                        {["llm_candidate", "regulatory_rag_candidate"].includes(finding.source_type) && finding.review_status === "pending_review" && (
+                          <div className="button-row review-actions">
+                            <button type="button" onClick={() => reviewFinding(finding.id, "confirmed")}>
+                              <Check size={16} />
+                              确认
+                            </button>
+                            <button type="button" className="secondary-button" onClick={() => reviewFinding(finding.id, "rejected")}>
+                              <X size={16} />
+                              驳回
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    ))}
+                  </section>
                 ))
               ) : (
                 <div className="empty-state">
                   <ShieldCheck size={18} />
                   <div>
-                    <strong>尚未形成风险清单</strong>
-                    <p>完成资料加载和主数据抽取后，运行规则与智能分析生成可复核发现。</p>
+                    <strong>{findings.length ? "当前筛选下暂无发现" : "尚未形成风险清单"}</strong>
+                    <p>
+                      {findings.length
+                        ? "切换筛选条件可查看其他类型结果。"
+                        : "完成资料加载和主数据抽取后，运行规则与智能分析生成可复核发现。"}
+                    </p>
                   </div>
                 </div>
               )}
@@ -1736,6 +2039,8 @@ export function App() {
             )}
           </div>
         </section>
+          </div>
+      </section>
       </section>
     </main>
   );

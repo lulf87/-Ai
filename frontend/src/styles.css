@@ -453,6 +453,29 @@ button:disabled svg {
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
 }
 
+.workbench-grid {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+}
+
+.main-flow {
+  display: grid;
+  gap: 18px;
+  grid-column: 1;
+  min-width: 0;
+}
+
+.regulation-dock {
+  align-self: start;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+  position: sticky;
+  top: 16px;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -472,6 +495,8 @@ button:disabled svg {
 }
 
 .actions-title {
+  flex-wrap: wrap;
+  gap: 12px;
   justify-content: space-between;
 }
 
@@ -486,6 +511,7 @@ button:disabled svg {
 .inline-fields {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -551,6 +577,17 @@ button:disabled svg {
 
 .regulation-panel {
   align-content: start;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.regulation-dock .regulation-import-grid,
+.regulation-dock .regulation-manual-form,
+.regulation-dock .regulation-search-form,
+.regulation-dock .attachment-url-form {
+  grid-template-columns: 1fr;
 }
 
 .regulation-import-grid,
@@ -572,6 +609,23 @@ button:disabled svg {
 
 .regulation-search-form {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.regulation-filter-bar {
+  align-items: end;
+  background: #f8fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.55fr);
+  padding: 10px;
+}
+
+.regulation-filter-bar span {
+  color: var(--muted);
+  font-size: 12px;
+  grid-column: 1 / -1;
 }
 
 .regulation-search-results {
@@ -610,7 +664,7 @@ button:disabled svg {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   display: grid;
-  gap: 8px;
+  gap: 7px;
   padding: 10px;
 }
 
@@ -681,6 +735,34 @@ button:disabled svg {
 
 .regulation-actions {
   justify-content: flex-start;
+}
+
+.regulation-actions button {
+  min-height: 32px;
+}
+
+.regulation-details {
+  border-top: 1px solid var(--line-soft);
+  display: grid;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.regulation-details summary {
+  color: var(--primary-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.regulation-details[open] {
+  padding-top: 8px;
+}
+
+.load-more-button {
+  justify-content: center;
+  width: 100%;
 }
 
 .attachment-list {
@@ -793,6 +875,44 @@ button:disabled svg {
   padding: 0 9px;
 }
 
+.finding-filter-bar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.finding-filter-button {
+  background: #f7f9fa;
+  border: 1px solid var(--line-soft);
+  color: var(--muted-strong);
+  min-height: 32px;
+}
+
+.finding-filter-button span {
+  background: #e8edf0;
+  border-radius: 999px;
+  color: var(--muted-strong);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.finding-filter-button.active {
+  background: #e6f7f4;
+  border-color: #9fd6ce;
+  color: var(--primary-dark);
+}
+
+.finding-filter-button.active span {
+  background: #ccece6;
+  color: var(--primary-dark);
+}
+
+.finding-filter-button:not(:disabled):hover {
+  background: #eef7f5;
+}
+
 .checklist-grid {
   display: grid;
   gap: 8px;
@@ -860,8 +980,36 @@ button:disabled svg {
   border-left: 5px solid #87929a;
   border-radius: 6px;
   display: grid;
-  gap: 7px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 11px 12px;
+}
+
+.finding-group {
+  display: grid;
+  gap: 8px;
+}
+
+.finding-group + .finding-group {
+  margin-top: 4px;
+}
+
+.finding-group-head {
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0 2px;
+}
+
+.finding-group-head h3 {
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.finding-group-head span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .finding-head {
@@ -872,6 +1020,7 @@ button:disabled svg {
 }
 
 .source-badge,
+.area-badge,
 .review-badge,
 .risk-badge {
   border-radius: 999px;
@@ -880,6 +1029,41 @@ button:disabled svg {
   font-weight: 700;
   line-height: 1;
   padding: 5px 8px;
+}
+
+.area-badge {
+  background: #f1f5f9;
+  color: var(--muted-strong);
+}
+
+.area-badge.area-testing {
+  background: #ecfeff;
+  color: #155e75;
+}
+
+.area-badge.area-software {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.area-badge.area-clinical {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
+.area-badge.area-labeling {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.area-badge.area-risk {
+  background: #fee2e2;
+  color: var(--red);
+}
+
+.area-badge.area-regulatory {
+  background: #dbeafe;
+  color: var(--blue);
 }
 
 .risk-badge.red {
@@ -955,6 +1139,24 @@ button:disabled svg {
   justify-content: flex-start;
 }
 
+.finding-title-row {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.finding-title-row h3 {
+  line-height: 1.35;
+}
+
+.finding-title-row span {
+  color: #7a8890;
+  font-size: 11px;
+  font-weight: 700;
+  padding-top: 2px;
+}
+
 .finding.red {
   background: #fff7f5;
   border-left-color: var(--red);
@@ -974,6 +1176,49 @@ button:disabled svg {
 .evidence-block {
   color: var(--muted);
   font-size: 12px;
+}
+
+.finding-summary {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.finding-evidence-preview {
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(96, 113, 122, 0.16);
+  border-radius: 6px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 7px 8px;
+}
+
+.finding-summary,
+.finding-evidence-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.finding-details {
+  border-top: 1px solid var(--line-soft);
+  display: grid;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.finding-details summary {
+  color: var(--primary-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.finding-details[open] {
+  padding-top: 8px;
 }
 
 .evidence-block {
@@ -998,7 +1243,15 @@ button:disabled svg {
 
 .action-text {
   color: var(--text);
+  font-size: 13px;
   font-weight: 600;
+  line-height: 1.45;
+}
+
+.impact-text {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .download-link {
@@ -1018,6 +1271,7 @@ button:disabled svg {
   }
 
   .two-columns,
+  .workbench-grid,
   .master-grid,
   .checklist-grid,
   .metric-grid,
@@ -1027,6 +1281,17 @@ button:disabled svg {
   .regulation-search-form,
   .regulation-card-main {
     grid-template-columns: 1fr;
+  }
+
+  .regulation-dock {
+    grid-column: auto;
+    grid-row: auto;
+    position: static;
+  }
+
+  .regulation-panel {
+    max-height: none;
+    overflow: visible;
   }
 
   .attachment-row {
